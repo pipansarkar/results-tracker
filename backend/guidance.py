@@ -99,3 +99,52 @@ def credibility(items: List[Dict]) -> Dict[str, int]:
     pending = sum(1 for i in items if i.get("status") == "pending")
     score = round(met / (met + missed) * 100) if (met + missed) else 0
     return {"score": score, "met": met, "missed": missed, "pending": pending}
+
+
+_METRIC_LABEL = {"revenue_growth_yoy": "Revenue growth", "pat_growth_yoy": "Profit growth",
+                 "ebitda_margin": "EBITDA margin", "revenue": "Revenue", "other": "Other"}
+
+
+def _mid(item: Dict) -> Optional[float]:
+    lo, hi = item.get("low"), item.get("high")
+    if lo is not None and hi is not None:
+        return (lo + hi) / 2
+    return lo if lo is not None else hi
+
+
+def diff(current: List[Dict], previous: List[Dict]) -> List[Dict]:
+    """Compare this call's quantitative guidance with the previous call's.
+
+    Matched by (metric, targetPeriod). Returns
+    [{metric, label, targetPeriod, direction, before, now, statement}] where
+    direction is raised | cut | reiterated | new | dropped. 'dropped' only
+    for targets whose period hasn't been reported yet (still live).
+    """
+    def key(i):
+        return (i.get("metric"), (i.get("targetPeriod") or "").upper().strip())
+
+    prev = {key(i): i for i in previous if i.get("metric") != "other"}
+    cur = {key(i): i for i in current if i.get("metric") != "other"}
+    out = []
+    for k, c in cur.items():
+        p = prev.get(k)
+        entry = {"metric": k[0], "label": _METRIC_LABEL.get(k[0], k[0]), "targetPeriod": k[1],
+                 "now": format_target(c), "statement": c.get("statement", "")}
+        if p is None:
+            entry["direction"] = "new"
+        else:
+            a, b = _mid(p), _mid(c)
+            entry["before"] = format_target(p)
+            if a is None or b is None:
+                entry["direction"] = "reiterated"
+            else:
+                tol = 0.25 if k[0] != "revenue" else abs(a) * 0.01
+                entry["direction"] = "raised" if b > a + tol else ("cut" if b < a - tol else "reiterated")
+        out.append(entry)
+    for k, p in prev.items():
+        if k not in cur and p.get("status", "pending") == "pending":
+            out.append({"metric": k[0], "label": _METRIC_LABEL.get(k[0], k[0]), "targetPeriod": k[1],
+                        "direction": "dropped", "before": format_target(p),
+                        "statement": p.get("statement", "")})
+    order = {"cut": 0, "raised": 1, "dropped": 2, "new": 3, "reiterated": 4}
+    return sorted(out, key=lambda e: order[e["direction"]])

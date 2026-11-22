@@ -13,6 +13,8 @@ service cloud.firestore {
     match /meta/{doc}    { allow read: if true; allow write: if false; }
     match /news/{sym}    { allow read: if true; allow write: if false; }
     match /screener/{n}  { allow read: if true; allow write: if false; }
+    match /activity/{sym} { allow read: if true; allow write: if false; }
+    match /deals/{doc}    { allow read: if true; allow write: if false; }
 
     // Everything else (incl. pipeline_state) is closed.
     match /{document=**} { allow read, write: if false; }

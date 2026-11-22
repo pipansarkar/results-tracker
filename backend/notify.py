@@ -21,8 +21,11 @@ class Notifier:
 
     def send(self, symbol: str, title: str, body: str,
              data: Optional[Dict[str, str]] = None) -> None:
-        topic = topic_for(symbol)
-        payload = {"symbol": symbol, **(data or {})}
+        self.send_topic(topic_for(symbol), title, body, {"symbol": symbol, **(data or {})})
+
+    def send_topic(self, topic: str, title: str, body: str,
+                   data: Optional[Dict[str, str]] = None) -> None:
+        payload = {k: str(v) for k, v in (data or {}).items()}
         self.sent.append((topic, title, body))
         if self.dry_run:
             log.info("[push dry-run] %s | %s | %s", topic, title, body)

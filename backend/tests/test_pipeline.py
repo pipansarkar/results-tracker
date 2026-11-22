@@ -290,3 +290,53 @@ def test_metrics_ratios():
     loss = [dict(q, eps=-1) for q in qs]
     m2 = metrics.compute(loss, price=800)
     assert "pe" not in m2 and "peg" not in m2
+
+
+def test_guidance_diff():
+    prev = [
+        {"metric": "revenue_growth_yoy", "low": 12, "high": 14, "targetPeriod": "FY27", "status": "pending"},
+        {"metric": "ebitda_margin", "low": 20, "high": None, "targetPeriod": "FY27", "status": "pending"},
+        {"metric": "pat_growth_yoy", "low": 15, "high": None, "targetPeriod": "FY27", "status": "pending"},
+        {"metric": "revenue", "low": 5000, "high": None, "targetPeriod": "Q1FY27", "status": "met"},
+    ]
+    cur = [
+        {"metric": "revenue_growth_yoy", "low": 9, "high": 11, "targetPeriod": "FY27"},   # cut
+        {"metric": "ebitda_margin", "low": 20, "high": None, "targetPeriod": "fy27"},     # reiterated
+        {"metric": "ebitda_margin", "low": 22, "high": None, "targetPeriod": "FY28"},     # new
+    ]
+    d = {(e["metric"], e["targetPeriod"]): e["direction"] for e in gd.diff(cur, prev)}
+    assert d[("revenue_growth_yoy", "FY27")] == "cut"
+    assert d[("ebitda_margin", "FY27")] == "reiterated"
+    assert d[("ebitda_margin", "FY28")] == "new"
+    assert d[("pat_growth_yoy", "FY27")] == "dropped"       # live target no longer mentioned
+    assert ("revenue", "Q1FY27") not in d                     # already resolved: not "dropped"
+    first = gd.diff(cur, prev)[0]
+    assert first["direction"] == "cut" and first["before"] == "12–14%" and first["now"] == "9–11%"
+
+
+def test_shp_parse_and_changes(tmp_path):
+    import ownership
+    xml = """<x:xbrl xmlns:x="http://www.xbrl.org/2003/instance" xmlns:d="http://xbrl.org/2006/xbrldi" xmlns:c="http://example/c">
+    <x:context id="P"><x:entity><x:segment><d:explicitMember dimension="c:A">c:ShareholdingOfPromoterAndPromoterGroupMember</d:explicitMember></x:segment></x:entity></x:context>
+    <x:context id="F"><x:entity><x:segment><d:explicitMember dimension="c:A">c:InstitutionsForeignMember</d:explicitMember></x:segment></x:entity></x:context>
+    <x:context id="D"><x:entity><x:segment><d:explicitMember dimension="c:A">c:InstitutionsDomesticMember</d:explicitMember></x:segment></x:entity></x:context>
+    <x:context id="U"><x:entity><x:segment><d:explicitMember dimension="c:A">c:PublicShareholdingMember</d:explicitMember></x:segment></x:entity></x:context>
+    <x:context id="N"><x:entity/></x:context>
+    <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="P">0.55</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
+    <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="F">0.2</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
+    <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="D">0.1</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
+    <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="U">0.45</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
+    <c:WhetherAnySharesHeldByPromotersAreEncumberedUnderPledged contextRef="N">false</c:WhetherAnySharesHeldByPromotersAreEncumberedUnderPledged>
+    </x:xbrl>"""
+    r = ownership.parse_shp(xml.encode())
+    assert r["promoter"] == 55.0 and r["fii"] == 20.0 and r["dii"] == 10.0 and r["pledge"] == 0.0
+    ch = ownership.changes([dict(r, promoter=53.0, pledge=4.0), r])
+    types = {c["type"] for c in ch}
+    assert "promoter_down" in types and "pledge_up" in types
+
+
+def test_redflags():
+    import redflags
+    assert redflags.classify("", "Resignation of Statutory Auditor")["type"] == "auditor_exit"
+    assert redflags.classify("", "CRISIL downgraded the credit rating to BBB")["type"] == "rating_down"
+    assert redflags.classify("Outcome of Board Meeting", "Approved results") is None

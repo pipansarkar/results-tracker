@@ -14,6 +14,10 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+  actions: write   # lets a run start the next one (see last step)
+
 # Never run two pipelines at once (they share pipeline_state in Firestore).
 concurrency:
   group: results-pipeline
@@ -23,7 +27,7 @@ jobs:
   run:
     runs-on: ubuntu-latest
     # Normal runs ~10 min; the one-off --backfill-all run can take hours.
-    timeout-minutes: ${{ contains(github.event.inputs.args, '--backfill-all') && 350 || 28 }}
+    timeout-minutes: ${{ contains(github.event.inputs.args, '--backfill-all') && 350 || 45 }}
     defaults:
       run:
         working-directory: backend
@@ -40,8 +44,8 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # Stocks whose 3-year history is loaded per run (~13 s each).
-          BACKFILL_PER_RUN: "40"
+          # Minutes per run spent loading history until every stock has it.
+          BACKFILL_MINUTES: "25"
           EXTRA_ARGS: ${{ github.event.inputs.args }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [[ "$EXTRA_ARGS" != *--dry-run* ]]; then
@@ -52,4 +56,21 @@ jobs:
             python run.py --morning
           else
             python run.py $EXTRA_ARGS
+          fi
+
+      # GitHub's cron scheduler is unreliable for new repos. If it hasn't
+      # fired in the last 90 minutes, start the next run ourselves so the
+      # pipeline never stops. Once cron works, this step does nothing.
+      - name: Keep the pipeline running
+        if: always() && !contains(github.event.inputs.args, '--dry-run') && !contains(github.event.inputs.args, '--symbols')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow results-pipeline --event schedule --limit 1 --json createdAt -q '.[0].createdAt // ""')
+          now=$(date +%s)
+          if [ -z "$last" ] || [ $(( now - $(date -d "$last" +%s) )) -gt 5400 ]; then
+            echo "Scheduler idle: starting next run."
+            gh workflow run results-pipeline -R "$GITHUB_REPOSITORY"
+          else
+            echo "Scheduler active (last scheduled run $last)."
           fi

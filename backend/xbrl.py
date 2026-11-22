@@ -70,6 +70,13 @@ class Quarter:
     # Shares outstanding, in crore shares.
     shares: Optional[float] = None
     isBank: Optional[bool] = None
+    # Detailed balance sheet lines (₹ Cr) at half-year / year end.
+    bs: Optional[Dict] = None
+    # Cash flow for the fiscal year-to-date (6 or 12 months), ₹ Cr.
+    cf: Optional[Dict] = None
+    # When the result was filed (ISO datetime) and the stock's move on it (%).
+    filedAt: Optional[str] = None
+    reaction: Optional[float] = None
 
     def to_dict(self) -> Dict:
         return {k: v for k, v in asdict(self).items() if v is not None or k in (
@@ -203,7 +210,70 @@ def _balance_sheet(ctxs, facts, end: date) -> Dict:
         cash = add("CashAndCashEquivalents", "BankBalanceOtherThanCashAndCashEquivalents")
     out = {"equity": _cr(equity), "debt": _cr(debt), "cash": _cr(cash),
            "totalAssets": _cr(get("Assets")), "isBank": bank}
-    return out if equity else {}
+    if not equity:
+        return {}
+    if bank:
+        detail = {
+            "deposits": get("Deposits"), "advances": get("Advances"),
+            "investments": get("Investments"), "borrowings": get("Borrowings"),
+            "fixedAssets": get("FixedAssets"), "equity": equity,
+            "otherLiabilities": get("OtherLiabilitiesAndProvisions"),
+            "totalAssets": get("Assets"),
+        }
+    else:
+        detail = {
+            "fixedAssets": get("PropertyPlantAndEquipment"),
+            "cwip": get("CapitalWorkInProgress"),
+            "goodwill": get("Goodwill"),
+            "investments": add("NoncurrentInvestments", "CurrentInvestments",
+                               "InvestmentsAccountedForUsingEquityMethod"),
+            "inventories": get("Inventories"),
+            "receivables": add("TradeReceivablesCurrent", "TradeReceivablesNoncurrent"),
+            "cash": cash,
+            "totalAssets": get("Assets"),
+            "equity": equity,
+            "minority": get("NonControllingInterest"),
+            "borrowingsLong": get("BorrowingsNoncurrent"),
+            "borrowingsShort": get("BorrowingsCurrent"),
+            "payables": add("TradePayablesCurrent", "TradePayablesNoncurrent"),
+            "currentAssets": get("CurrentAssets"),
+            "currentLiabilities": get("CurrentLiabilities"),
+        }
+    out["bs"] = {k: _cr(v) for k, v in detail.items() if v is not None}
+    return out
+
+
+def _cash_flow(ctxs, facts, end: date) -> Optional[Dict]:
+    """Year-to-date cash flow ending at `end` (filed with half-year and
+    full-year results). Indian FY starts 1 April."""
+    fy_start = date(end.year if end.month >= 4 else end.year - 1, 4, 1)
+    cids = [cid for cid, (start, e, dims) in ctxs.items()
+            if start == fy_start and e == end and not dims]
+    if not cids:
+        return None
+
+    def get(n):
+        for c in cids:
+            if (n, c) in facts:
+                return facts[(n, c)]
+        return None
+
+    cfo = get("CashFlowsFromUsedInOperatingActivities")
+    if cfo is None:
+        return None
+    capex = get("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities")
+    intangibles = get("PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities")
+    capex_total = (capex or 0) + (intangibles or 0) if (capex or intangibles) else None
+    out = {
+        "months": round((end - fy_start).days / 30.4),
+        "cfo": cfo,
+        "cfi": get("CashFlowsFromUsedInInvestingActivities"),
+        "cff": get("CashFlowsFromUsedInFinancingActivities"),
+        "capex": capex_total,
+        "dividends": get("DividendsPaidClassifiedAsFinancingActivities"),
+        "fcf": cfo - capex_total if capex_total is not None else None,
+    }
+    return {k: (v if k == "months" else _cr(v)) for k, v in out.items() if v is not None}
 
 
 def _shares(ctxs, facts, end: date) -> Optional[float]:
@@ -306,6 +376,7 @@ def parse_xbrl(content: bytes) -> List[Quarter]:
                                      "DilutedEarningsLossPerShare"])),
             segments=_segments(root, end, facts),
             shares=_shares(ctxs, facts, end),
+            cf=_cash_flow(ctxs, facts, end),
             **_balance_sheet(ctxs, facts, end),
         )
 
@@ -347,6 +418,10 @@ def merge_quarters(existing: List[Dict], new: List[Quarter], keep: int = 12) -> 
         old = by_period.get(q.period)
         if old and old.get("consolidated") and not q.consolidated:
             continue
-        by_period[q.period] = q.to_dict()
+        new = q.to_dict()
+        for k in ("filedAt", "reaction"):  # keep what we learned earlier
+            if old and new.get(k) is None and old.get(k) is not None:
+                new[k] = old[k]
+        by_period[q.period] = new
     out = sorted(by_period.values(), key=lambda q: q["endDate"], reverse=True)
     return out[:keep]

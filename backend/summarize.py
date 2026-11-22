@@ -92,6 +92,19 @@ SCHEMA = {
             "properties": {"en": _LANG, "bn": _LANG, "hi": _LANG},
             "required": ["en", "bn", "hi"],
         },
+        "changes": {
+            "type": "OBJECT",
+            "properties": {
+                "summary": {"type": "STRING"},
+                "newTopics": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "droppedTopics": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "guidanceShifts": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "toneShift": {"type": "STRING"},
+                "bn": {"type": "STRING"},
+                "hi": {"type": "STRING"},
+            },
+            "required": ["summary", "newTopics", "droppedTopics", "guidanceShifts"],
+        },
         "guidanceItems": {"type": "ARRAY", "items": {
             "type": "OBJECT",
             "properties": {
@@ -121,6 +134,13 @@ Rules:
 - qa: the 5-8 most important analyst questions and management's answers, condensed.
 - redFlags: real concerns only (auditor issues, rising receivables or debt, weak demand,
   repeated excuses, evasive answers, guidance cuts, key exits). Empty list if none.
+- changes: compare with the PREVIOUS CALL section if given (otherwise use
+  empty lists and summary "First call tracked"). summary: 1-2 lines on what
+  changed. newTopics: themes discussed now that weren't last time.
+  droppedTopics: themes management stressed last time but didn't mention or
+  skipped now (these can be quiet red flags). guidanceShifts: each guidance
+  raised, cut, reiterated or withdrawn vs last call, with numbers.
+  toneShift: one line. bn/hi: the summary line in Bengali and Hindi.
 - callDate: the date the call was held, as YYYY-MM-DD, if stated; otherwise null.
 - tone: overall management tone. toneChange: one line comparing with the previous call
   if provided, otherwise "".
@@ -151,9 +171,12 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     prev = ""
     if previous:
         en = (previous.get("summary") or {}).get("en") or {}
-        prev = ("Previous call ({p}) tone: {t}. Its guidance was: {g}\n".format(
-            p=previous.get("period"), t=previous.get("tone"),
-            g="; ".join(en.get("guidance", [])[:6])))
+        prev = ("PREVIOUS CALL ({p}), tone: {t}\nKey points: {h}\nGuidance: {g}\n"
+                "Analyst questions: {q}\n".format(
+                    p=previous.get("period"), t=previous.get("tone"),
+                    h=" | ".join(en.get("highlights", [])[:8]),
+                    g=" | ".join(en.get("guidance", [])[:8]),
+                    q=" | ".join(x.get("q", "") for x in en.get("qa", [])[:8])))
 
     client = genai.Client(api_key=key)
     prompt = PROMPT.format(name=name, symbol=symbol, period=period,
