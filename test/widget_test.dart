@@ -83,6 +83,20 @@ void main() {
     expect(find.text("Today's Results"), findsOneWidget);
     expect(find.textContaining('Sample data'), findsOneWidget);
     expect(find.text('HDFC Bank'), findsOneWidget);
+    expect(find.text('results today'), findsOneWidget);
+    expect(find.text('Screener'), findsWidgets); // quick actions
+    await tester.scrollUntilVisible(
+      find.text('Profit up'),
+      200,
+      scrollable: find
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
+          .first,
+    );
+    await tester.tap(find.text('Profit up'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Card), findsWidgets);
   });
 
   testWidgets('Company page, watchlist and concall summary', (tester) async {
@@ -201,14 +215,14 @@ void main() {
     expect(find.text('Biggest profit growth'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Big deals'));
+    await tester.tap(find.text('Deals'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Block deal'), findsWidgets);
   });
 
   testWidgets('Calendar shows upcoming and past events', (tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Calendar'));
+    await tester.tap(find.text('Calendar').last);
     await tester.pumpAndSettle();
     expect(find.text('Results Calendar'), findsOneWidget);
     expect(find.text('Upcoming'), findsOneWidget);
@@ -245,7 +259,7 @@ void main() {
 
   testWidgets('Screener presets, filters and compare', (tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Screener'));
+    await tester.tap(find.text('Screener').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('20 stocks'), findsOneWidget);
 
@@ -327,7 +341,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // IPOs.
-    await tester.tap(find.text('IPOs'));
+    await tester.tap(find.text('IPOs').first);
     await tester.pumpAndSettle();
     expect(find.textContaining('Bright Energy'), findsOneWidget);
     await tester.tap(find.textContaining('Bright Energy'));
@@ -339,7 +353,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Order wins feed.
-    await tester.tap(find.text('Order wins'));
+    await tester.tap(find.text('Orders'));
     await tester.pumpAndSettle();
     expect(find.textContaining('of annual revenue'), findsWidgets);
     await tester.pageBack();
