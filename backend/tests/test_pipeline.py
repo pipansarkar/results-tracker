@@ -262,3 +262,31 @@ def test_zero_owners_profit_falls_back_to_total():
         '<in-capmkt:ProfitOrLossAttributableToOwnersOfParent contextRef="OneD" unitRef="INR" decimals="-5">0')
     cur = parse_xbrl(xml.encode())[0]
     assert cur.pat == 150.0  # total profit, not 0
+
+
+def test_metrics_ratios():
+    import metrics
+    qs = []
+    # 8 quarters, newest first; EPS 10/qtr now vs 8/qtr a year earlier.
+    ends = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31",
+            "2025-09-30", "2025-06-30", "2025-03-31", "2024-12-31"]
+    labels = ["Q2FY27", "Q1FY27", "Q4FY26", "Q3FY26", "Q2FY26", "Q1FY26", "Q4FY25", "Q3FY25"]
+    for i, (e, l) in enumerate(zip(ends, labels)):
+        new = i < 4
+        qs.append({"period": l, "endDate": e, "revenue": 1000 if new else 800,
+                   "ebitda": 200 if new else 150, "pat": 100 if new else 80,
+                   "eps": 10 if new else 8, "pbt": 130 if new else 100, "financeCost": 10,
+                   **({"equity": 2000, "debt": 500, "cash": 100, "shares": 10, "isBank": False} if i == 0 else {})})
+    m = metrics.compute(qs, price=800)
+    assert m["eps"] == 40 and m["pe"] == 20.0          # 800 / 40
+    assert m["peg"] == 0.8                              # 20 / 25% EPS growth
+    assert m["mc"] == 8000 and m["pb"] == 4.0           # 800 * 10 Cr shares; 8000/2000
+    assert m["roe"] == 20.0                              # 400 / 2000
+    assert m["roce"] == 22.4                             # (520 + 40) / 2500
+    assert m["de"] == 0.25 and m["bv"] == 200.0
+    assert m["ev"] == 10.5                               # (8000 + 500 - 100) / 800
+    assert m["rg"] == 25.0 and m["rgt"] == 25.0 and m["ebm"] == 20.0
+    # Loss-making: no P/E or PEG
+    loss = [dict(q, eps=-1) for q in qs]
+    m2 = metrics.compute(loss, price=800)
+    assert "pe" not in m2 and "peg" not in m2

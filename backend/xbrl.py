@@ -62,6 +62,14 @@ class Quarter:
     dilutedEps: Optional[float] = None
     # [{name, revenue, result}] for the quarter, when segments are reported.
     segments: Optional[List[Dict]] = None
+    # Balance sheet at quarter end (₹ crore); companies file it half-yearly.
+    equity: Optional[float] = None
+    debt: Optional[float] = None
+    cash: Optional[float] = None
+    totalAssets: Optional[float] = None
+    # Shares outstanding, in crore shares.
+    shares: Optional[float] = None
+    isBank: Optional[bool] = None
 
     def to_dict(self) -> Dict:
         return {k: v for k, v in asdict(self).items() if v is not None or k in (
@@ -165,6 +173,53 @@ def _segments(root: ET.Element, end: date, facts: Dict[Tuple[str, str], float]) 
     return out if len(out) >= 2 else None
 
 
+def _balance_sheet(ctxs, facts, end: date) -> Dict:
+    """Instant (point-in-time), dimension-free facts at `end`."""
+    cids = [cid for cid, (start, e, dims) in ctxs.items() if start is None and not dims and e == end]
+    if not cids:
+        return {}
+
+    def get(n):
+        for c in cids:
+            if (n, c) in facts:
+                return facts[(n, c)]
+        return None
+
+    def add(*names):
+        vals = [get(n) for n in names]
+        vals = [v for v in vals if v is not None]
+        return sum(vals) if vals else None
+
+    bank = get("Deposits") is not None
+    if bank:
+        equity = add("Capital", "ReservesAndSurplus")
+        debt = get("Borrowings")
+        cash = get("CashAndBalancesWithReserveBankOfIndia")
+    else:
+        equity = get("EquityAttributableToOwnersOfParent")
+        if equity is None:
+            equity = get("Equity")
+        debt = add("BorrowingsCurrent", "BorrowingsNoncurrent")
+        cash = add("CashAndCashEquivalents", "BankBalanceOtherThanCashAndCashEquivalents")
+    out = {"equity": _cr(equity), "debt": _cr(debt), "cash": _cr(cash),
+           "totalAssets": _cr(get("Assets")), "isBank": bank}
+    return out if equity else {}
+
+
+def _shares(ctxs, facts, end: date) -> Optional[float]:
+    """Paid-up capital / face value, in crore shares."""
+    paid = face = None
+    for (n, c), v in facts.items():
+        if c in ctxs and ctxs[c][1] == end and not ctxs[c][2]:
+            if n == "PaidUpValueOfEquityShareCapital":
+                paid = v
+            elif n == "FaceValueOfEquityShareCapital":
+                face = v
+    if paid and face and face > 0:
+        return round(paid / face / CRORE, 4)
+    return None
+
+
 def _text_fact(root: ET.Element, names: List[str]) -> Optional[str]:
     for el in root:
         if _local(el.tag) in names and el.text:
@@ -250,6 +305,8 @@ def parse_xbrl(content: bytes) -> List[Quarter]:
                                      "DilutedEarningsLossPerShareFromContinuingOperations",
                                      "DilutedEarningsLossPerShare"])),
             segments=_segments(root, end, facts),
+            shares=_shares(ctxs, facts, end),
+            **_balance_sheet(ctxs, facts, end),
         )
 
         try:

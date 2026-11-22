@@ -43,7 +43,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 HERE = Path(__file__).parent
 UNIVERSE_CSV = HERE / "companies.csv"
 STATE = "pipeline_state/main"
-SCHEMA = 3  # bump to re-parse all filings (3 = detailed P&L, segments, owners-PAT fix)
+SCHEMA = 4  # bump to re-parse all filings (4 = + balance sheet & share count)
 MAX_PROCESSED = 8000
 
 CAL_PAST_DAYS = 60        # calendar keeps / back-fills this many past days
@@ -431,6 +431,38 @@ class Pipeline:
         log.info("news: updated %d companies", n)
         self._news = {}
 
+    # -------------------------------------------------------------- screener
+
+    def process_screener(self, force: bool = False, chunk: int = 600) -> None:
+        """Ratios for every stock -> screener/{n} docs (compact keys, ~600
+        stocks each, to stay under Firestore's 1 MB document limit).
+        Runs once per new trading day, or when forced (after a full load)."""
+        import metrics
+
+        trade_date, prices = metrics.latest_prices(self.nse, self.today)
+        if not force and (not trade_date or self.state.get("screenerPriceDate") == trade_date):
+            return
+        companies = dict(self.store.list("companies"))
+        rows = []
+        for sym, info in sorted(self.universe.items()):
+            doc = companies.get(sym) or {}
+            m = metrics.compute(doc.get("quarters", []), prices.get(sym))
+            if not m and sym not in prices:
+                continue
+            if sym in prices and "p" not in m:
+                m["p"] = round(prices[sym], 2)
+            rows.append({"s": sym, **m})
+        old_chunks = self.state.get("screenerChunks", 0)
+        n = 0
+        for n, i in enumerate(range(0, len(rows), chunk)):
+            self.store.set(f"screener/{n}", {"asOf": trade_date, "items": rows[i:i + chunk]})
+        n_chunks = (len(rows) + chunk - 1) // chunk
+        for extra in range(n_chunks, old_chunks):
+            self.store.set(f"screener/{extra}", {"asOf": trade_date, "items": []})
+        self.state["screenerChunks"] = n_chunks
+        self.state["screenerPriceDate"] = trade_date
+        log.info("screener: %d stocks, prices of %s, %d docs", len(rows), trade_date, n_chunks)
+
     # ----------------------------------------------------------- transcripts
 
     def process_transcripts(self) -> None:
@@ -560,7 +592,7 @@ def main() -> None:
                    help="one-off: load history for every remaining stock in this run")
     p.add_argument("--morning", action="store_true", help="send today's alerts")
     p.add_argument("--refresh-universe", action="store_true", help="force refresh of the NSE stock list")
-    p.add_argument("--max-summaries", type=int, default=int(os.environ.get("MAX_SUMMARIES", "8")))
+    p.add_argument("--max-summaries", type=int, default=int(os.environ.get("MAX_SUMMARIES", "25")))
     p.add_argument("--skip-transcripts", action="store_true")
     p.add_argument("--no-history", action="store_true", help="skip the automatic backfill steps")
     args = p.parse_args()
@@ -586,12 +618,19 @@ def main() -> None:
             pipe.backfill(symbols)
         elif args.backfill_all:
             pipe.backfill(limit=len(pipe.universe))
+            pipe.save_state()
+            pipe.process_screener(force=True)
         elif not args.no_history and not symbols:
             pipe.backfill()
         pipe.process_board_meetings()
         pipe.process_announcements(args.days, history=not args.no_history and not symbols)
         pipe.flush_calendar()
         pipe.flush_news()
+        if not symbols:
+            try:
+                pipe.process_screener()
+            except Exception as e:  # ratios must never block results/summaries
+                log.warning("screener failed: %s", e)
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
