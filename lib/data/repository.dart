@@ -29,6 +29,9 @@ abstract class Repository {
 
   /// The company's latest NSE announcements, newest first (one doc).
   Future<List<NewsItem>> filings(String symbol);
+
+  /// Ratios for every stock (a few screener/{n} docs).
+  Future<List<StockMetrics>> screener();
 }
 
 String dateId(DateTime d) =>

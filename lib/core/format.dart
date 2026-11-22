@@ -19,3 +19,16 @@ String num2(double? v) => v == null ? '—' : v.toStringAsFixed(2);
 
 final dayFormat = DateFormat('EEE, d MMM');
 final timeFormat = DateFormat('h:mm a');
+
+/// Formats a metric value by unit: '%', 'x', '₹', 'Cr'.
+String metricValue(double? v, String unit) {
+  if (v == null) return '—';
+  return switch (unit) {
+    '%' => '${v.toStringAsFixed(1)}%',
+    'x' => '${v.toStringAsFixed(v.abs() >= 100 ? 0 : 1)}x',
+    '₹' =>
+      '₹${v >= 1000 ? NumberFormat.decimalPattern('en_IN').format(v.round()) : v.toStringAsFixed(2)}',
+    'Cr' => crore(v),
+    _ => v.toStringAsFixed(2),
+  };
+}

@@ -40,7 +40,15 @@ class CompanyScreen extends ConsumerWidget {
               ),
             ],
           ),
-          actions: [WatchButton(symbol)],
+          actions: [
+            IconButton(
+              tooltip: 'Compare with other stocks',
+              icon: const Icon(Icons.compare_arrows),
+              onPressed: () =>
+                  context.push('/compare?s=${Uri.encodeComponent(symbol)}'),
+            ),
+            WatchButton(symbol),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Results'),
@@ -185,6 +193,7 @@ class _ResultsTabState extends State<_ResultsTab> {
             ],
           ),
         ),
+        _KeyRatios(widget.c.symbol),
         _Glance(q: q, prev: prev, ago: ago),
         _Section(
           title: 'Trend',
@@ -267,6 +276,90 @@ class _ResultsTabState extends State<_ResultsTab> {
           child: Text(disclaimerText, style: TextStyle(fontSize: 11)),
         ),
       ],
+    );
+  }
+}
+
+/// Valuation & quality ratios (price-based, from the screener data).
+class _KeyRatios extends ConsumerWidget {
+  const _KeyRatios(this.symbol);
+  final String symbol;
+
+  static const _keys = [
+    'p',
+    'mc',
+    'pe',
+    'peg',
+    'pb',
+    'ev',
+    'roe',
+    'roce',
+    'de',
+    'eps',
+    'bv',
+    'npm',
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final m = ref.watch(metricsProvider(symbol));
+    if (m == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final defs = _keys.map(metricDef).where((d) => d.get(m) != null).toList();
+    return _Section(
+      title: 'Key ratios',
+      trailing: Text(
+        'TTM · price as of last close',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = (box.maxWidth - 16) / 3;
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final d in defs)
+                Tooltip(
+                  message: d.help,
+                  triggerMode: TooltipTriggerMode.tap,
+                  child: Container(
+                    width: w,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest.withValues(
+                        alpha: 0.5,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          d.short,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        FittedBox(
+                          child: Text(
+                            metricValue(d.get(m), d.unit),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

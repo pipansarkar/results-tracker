@@ -157,7 +157,8 @@ class Pipeline:
         if fresh:
             self.backfill(fresh)
 
-    def backfill(self, symbols: Optional[List[str]] = None, limit: int = BACKFILL_PER_RUN) -> None:
+    def backfill(self, symbols: Optional[List[str]] = None, limit: int = BACKFILL_PER_RUN,
+                 refresh_ratios_every: int = 0) -> None:
         """~3 years of quarterly history, a batch of stocks per run."""
         if symbols is None:
             todo = [s for s in self.universe if s not in self.backfilled]
@@ -173,6 +174,11 @@ class Pipeline:
             self.backfilled.add(s)
             if len(self.backfilled) % 25 == 0:
                 self.save_state()  # long backfills never lose progress
+            if refresh_ratios_every and len(self.backfilled) % refresh_ratios_every == 0:
+                try:
+                    self.process_screener(force=True)
+                except Exception as e:
+                    log.warning("screener refresh failed: %s", e)
         if symbols:
             log.info("backfilled %d stocks (%d/%d done)", len(symbols), len(self.backfilled), len(self.universe))
 
@@ -617,7 +623,7 @@ def main() -> None:
         if args.backfill and symbols:
             pipe.backfill(symbols)
         elif args.backfill_all:
-            pipe.backfill(limit=len(pipe.universe))
+            pipe.backfill(limit=len(pipe.universe), refresh_ratios_every=400)
             pipe.save_state()
             pipe.process_screener(force=True)
         elif not args.no_history and not symbols:

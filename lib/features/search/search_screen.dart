@@ -7,7 +7,10 @@ import '../../models/models.dart';
 import '../../widgets/common.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.pick = false});
+
+  /// Pick mode: tapping a stock returns its symbol (used by Compare).
+  final bool pick;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -73,9 +76,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               return ListTile(
                 title: Text(c.name),
                 subtitle: Text('${c.symbol} · ${c.sector}'),
-                trailing: WatchButton(c.symbol),
-                onTap: () =>
-                    context.push('/company/${Uri.encodeComponent(c.symbol)}'),
+                trailing: widget.pick
+                    ? const Icon(Icons.add_circle_outline)
+                    : WatchButton(c.symbol),
+                onTap: () => widget.pick
+                    ? context.pop(c.symbol)
+                    : context.push('/company/${Uri.encodeComponent(c.symbol)}'),
               );
             },
           );

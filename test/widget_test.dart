@@ -116,7 +116,10 @@ void main() {
     // News tab: media headline + NSE filings.
     await tester.tap(find.text('News'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('shares rise after quarterly results'), findsOneWidget);
+    expect(
+      find.textContaining('shares rise after quarterly results'),
+      findsOneWidget,
+    );
     expect(find.text('NSE filing'), findsWidgets);
     await tester.tap(find.text('NSE filings'));
     await tester.pumpAndSettle();
@@ -169,5 +172,44 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Infosys'), findsOneWidget);
     expect(find.text('Wipro'), findsNothing);
+  });
+
+  testWidgets('Screener presets, filters and compare', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Screener'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('20 stocks'), findsOneWidget);
+
+    // A preset narrows the list and changes the sort.
+    await tester.tap(find.text('Value'));
+    await tester.pumpAndSettle();
+    final large = find.textContaining(RegExp(r'^\d+ stocks$'));
+    expect(large, findsOneWidget);
+    expect((tester.widget<Text>(large)).data, isNot('20 stocks'));
+    expect(find.textContaining('ROE ≥'), findsOneWidget); // active chip
+    expect(find.textContaining('Sorted by P/E ↑'), findsOneWidget);
+
+    // Pick two stocks -> Compare.
+    await tester.tap(find.text('Value')); // clear preset
+    await tester.pumpAndSettle();
+    final boxes = find.byType(Checkbox);
+    await tester.tap(boxes.at(0));
+    await tester.tap(boxes.at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('Compare 2'), findsOneWidget);
+    await tester.tap(find.text('Compare 2'));
+    await tester.pumpAndSettle();
+    expect(find.text('Key numbers'), findsOneWidget);
+    expect(find.text('VALUATION'), findsOneWidget);
+    expect(find.text('ROE'), findsWidgets);
+  });
+
+  testWidgets('Company page shows key ratios', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('HDFC Bank'));
+    await tester.pumpAndSettle();
+    expect(find.text('Key ratios'), findsOneWidget);
+    expect(find.text('P/E'), findsOneWidget);
+    expect(find.text('ROE'), findsOneWidget);
   });
 }

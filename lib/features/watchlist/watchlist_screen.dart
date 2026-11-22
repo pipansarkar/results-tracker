@@ -19,6 +19,14 @@ class WatchlistScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Watchlist'),
         actions: [
+          if (symbols.length >= 2)
+            IconButton(
+              tooltip: 'Compare watchlist',
+              icon: const Icon(Icons.compare_arrows),
+              onPressed: () => context.push(
+                '/compare?s=${symbols.take(4).map(Uri.encodeComponent).join(',')}',
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => context.push('/search'),

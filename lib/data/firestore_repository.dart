@@ -94,4 +94,14 @@ class FirestoreRepository implements Repository {
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
   }
+
+  @override
+  Future<List<StockMetrics>> screener() async {
+    final snap = await _db.collection('screener').get();
+    return [
+      for (final d in snap.docs)
+        for (final e in (d.data()['items'] as List? ?? []))
+          StockMetrics.fromMap(Map<String, dynamic>.from(e as Map)),
+    ];
+  }
 }

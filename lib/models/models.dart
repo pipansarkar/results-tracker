@@ -15,16 +15,19 @@ class CompanyLite {
   final String symbol;
   final String name;
   final String sector;
+  final bool nifty500;
   const CompanyLite({
     required this.symbol,
     required this.name,
     required this.sector,
+    this.nifty500 = false,
   });
 
   factory CompanyLite.fromMap(Map<String, dynamic> m) => CompanyLite(
     symbol: m['symbol'] as String,
     name: m['name'] as String? ?? m['symbol'] as String,
     sector: m['sector'] as String? ?? '',
+    nifty500: m['n500'] as bool? ?? false,
   );
 }
 
@@ -442,3 +445,268 @@ class NewsItem {
     source: 'NSE',
   );
 }
+
+/// Valuation and quality ratios for one stock (screener/{n} docs).
+/// TTM = trailing twelve months. Null when not meaningful (e.g. P/E for a
+/// loss-making company, debt ratios for banks).
+class StockMetrics {
+  final String symbol;
+  final String? period;
+  final double? price;
+  final double? marketCap; // ₹ Cr
+  final double? pe;
+  final double? peg;
+  final double? pb;
+  final double? roe;
+  final double? roce;
+  final double? debtEquity;
+  final double? evEbitda;
+  final double? bookValue;
+  final double? epsTtm;
+  final double? revenueTtm;
+  final double? profitTtm;
+  final double? revGrowth; // latest quarter YoY %
+  final double? profitGrowth;
+  final double? revGrowthTtm;
+  final double? profitGrowthTtm;
+  final double? ebitdaMargin; // TTM %
+  final double? netMargin;
+  final bool isBank;
+
+  const StockMetrics({
+    required this.symbol,
+    this.period,
+    this.price,
+    this.marketCap,
+    this.pe,
+    this.peg,
+    this.pb,
+    this.roe,
+    this.roce,
+    this.debtEquity,
+    this.evEbitda,
+    this.bookValue,
+    this.epsTtm,
+    this.revenueTtm,
+    this.profitTtm,
+    this.revGrowth,
+    this.profitGrowth,
+    this.revGrowthTtm,
+    this.profitGrowthTtm,
+    this.ebitdaMargin,
+    this.netMargin,
+    this.isBank = false,
+  });
+
+  factory StockMetrics.fromMap(Map<String, dynamic> m) => StockMetrics(
+    symbol: m['s'] as String,
+    period: m['q'] as String?,
+    price: _d(m['p']),
+    marketCap: _d(m['mc']),
+    pe: _d(m['pe']),
+    peg: _d(m['peg']),
+    pb: _d(m['pb']),
+    roe: _d(m['roe']),
+    roce: _d(m['roce']),
+    debtEquity: _d(m['de']),
+    evEbitda: _d(m['ev']),
+    bookValue: _d(m['bv']),
+    epsTtm: _d(m['eps']),
+    revenueTtm: _d(m['rev']),
+    profitTtm: _d(m['pat']),
+    revGrowth: _d(m['rg']),
+    profitGrowth: _d(m['pg']),
+    revGrowthTtm: _d(m['rgt']),
+    profitGrowthTtm: _d(m['pgt']),
+    ebitdaMargin: _d(m['ebm']),
+    netMargin: _d(m['npm']),
+    isBank: m['bank'] as bool? ?? false,
+  );
+}
+
+/// One metric that can be shown, filtered, sorted and compared.
+class MetricDef {
+  final String key;
+  final String label;
+  final String short;
+  final double? Function(StockMetrics) get;
+
+  /// '%', 'x', '₹', 'Cr'
+  final String unit;
+
+  /// For "best" highlighting in Compare: true if higher is better.
+  final bool higherIsBetter;
+  final String help;
+
+  const MetricDef(
+    this.key,
+    this.label,
+    this.short,
+    this.get,
+    this.unit, {
+    this.higherIsBetter = true,
+    this.help = '',
+  });
+}
+
+final List<MetricDef> metricDefs = [
+  MetricDef(
+    'mc',
+    'Market cap',
+    'M.Cap',
+    (m) => m.marketCap,
+    'Cr',
+    help: 'Share price × shares outstanding.',
+  ),
+  MetricDef(
+    'p',
+    'Price',
+    'Price',
+    (m) => m.price,
+    '₹',
+    help: 'Last NSE closing price.',
+  ),
+  MetricDef(
+    'pe',
+    'P/E',
+    'P/E',
+    (m) => m.pe,
+    'x',
+    higherIsBetter: false,
+    help: 'Price ÷ earnings per share over the last 12 months.',
+  ),
+  MetricDef(
+    'peg',
+    'PEG',
+    'PEG',
+    (m) => m.peg,
+    'x',
+    higherIsBetter: false,
+    help: 'P/E ÷ yearly EPS growth %. Below 1 can mean growth is cheap.',
+  ),
+  MetricDef(
+    'pb',
+    'P/B',
+    'P/B',
+    (m) => m.pb,
+    'x',
+    higherIsBetter: false,
+    help: 'Market cap ÷ shareholders\' equity (book value).',
+  ),
+  MetricDef(
+    'ev',
+    'EV/EBITDA',
+    'EV/EBITDA',
+    (m) => m.evEbitda,
+    'x',
+    higherIsBetter: false,
+    help: '(Market cap + debt − cash) ÷ EBITDA over 12 months.',
+  ),
+  MetricDef(
+    'roe',
+    'ROE',
+    'ROE',
+    (m) => m.roe,
+    '%',
+    help: 'Profit over 12 months ÷ shareholders\' equity.',
+  ),
+  MetricDef(
+    'roce',
+    'ROCE',
+    'ROCE',
+    (m) => m.roce,
+    '%',
+    help: 'Operating profit (EBIT) ÷ capital employed (equity + debt).',
+  ),
+  MetricDef(
+    'de',
+    'Debt / equity',
+    'D/E',
+    (m) => m.debtEquity,
+    'x',
+    higherIsBetter: false,
+    help: 'Borrowings ÷ shareholders\' equity.',
+  ),
+  MetricDef(
+    'rg',
+    'Revenue growth (qtr YoY)',
+    'Rev gr.',
+    (m) => m.revGrowth,
+    '%',
+    help: 'Latest quarter revenue vs same quarter last year.',
+  ),
+  MetricDef(
+    'pg',
+    'Profit growth (qtr YoY)',
+    'Profit gr.',
+    (m) => m.profitGrowth,
+    '%',
+    help: 'Latest quarter profit vs same quarter last year.',
+  ),
+  MetricDef(
+    'rgt',
+    'Revenue growth (TTM)',
+    'Rev gr. TTM',
+    (m) => m.revGrowthTtm,
+    '%',
+    help: 'Last 12 months revenue vs the 12 months before.',
+  ),
+  MetricDef(
+    'pgt',
+    'Profit growth (TTM)',
+    'Profit gr. TTM',
+    (m) => m.profitGrowthTtm,
+    '%',
+    help: 'Last 12 months profit vs the 12 months before.',
+  ),
+  MetricDef(
+    'ebm',
+    'EBITDA margin (TTM)',
+    'EBITDA %',
+    (m) => m.ebitdaMargin,
+    '%',
+    help: 'EBITDA ÷ revenue over the last 12 months.',
+  ),
+  MetricDef(
+    'npm',
+    'Net margin (TTM)',
+    'Net %',
+    (m) => m.netMargin,
+    '%',
+    help: 'Profit ÷ revenue over the last 12 months.',
+  ),
+  MetricDef(
+    'eps',
+    'EPS (TTM)',
+    'EPS',
+    (m) => m.epsTtm,
+    '₹',
+    help: 'Earnings per share over the last 12 months.',
+  ),
+  MetricDef(
+    'bv',
+    'Book value / share',
+    'BV',
+    (m) => m.bookValue,
+    '₹',
+    help: 'Shareholders\' equity ÷ shares outstanding.',
+  ),
+  MetricDef(
+    'rev',
+    'Revenue (TTM)',
+    'Revenue',
+    (m) => m.revenueTtm,
+    'Cr',
+    help: 'Revenue over the last 12 months.',
+  ),
+  MetricDef(
+    'pat',
+    'Net profit (TTM)',
+    'Profit',
+    (m) => m.profitTtm,
+    'Cr',
+    help: 'Profit to shareholders over the last 12 months.',
+  ),
+];
+
+MetricDef metricDef(String key) => metricDefs.firstWhere((d) => d.key == key);

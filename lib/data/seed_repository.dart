@@ -471,4 +471,57 @@ class SeedRepository implements Repository {
       ),
     ];
   }
+
+  @override
+  Future<List<StockMetrics>> screener() async {
+    final rnd = Random(7);
+    final out = <StockMetrics>[];
+    for (final c in _companies.values) {
+      final q = c.quarters;
+      double sum(double? Function(QuarterResult) f, int from) =>
+          q.skip(from).take(4).fold(0.0, (a, r) => a + (f(r) ?? 0));
+      final eps = sum((r) => r.eps, 0), epsPrev = sum((r) => r.eps, 4);
+      final rev = sum((r) => r.revenue, 0), revPrev = sum((r) => r.revenue, 4);
+      final pat = sum((r) => r.pat, 0), patPrev = sum((r) => r.pat, 4);
+      final ebitda = sum((r) => r.ebitda, 0);
+      final pe = 12 + rnd.nextDouble() * 50;
+      final price = eps * pe;
+      final shares = pat / eps; // crore shares
+      final equity = pat / (0.12 + rnd.nextDouble() * 0.25);
+      final debt = equity * rnd.nextDouble() * 0.8;
+      final growth = (eps / epsPrev - 1) * 100;
+      final bank = c.sector.contains('Bank') || c.sector == 'NBFC';
+      out.add(
+        StockMetrics(
+          symbol: c.symbol,
+          period: q.first.period,
+          price: price,
+          marketCap: price * shares,
+          pe: pe,
+          peg: growth > 0 ? pe / growth : null,
+          pb: price * shares / equity,
+          roe: pat / equity * 100,
+          roce: bank
+              ? null
+              : (sum((r) => r.pbt, 0) + sum((r) => r.financeCost, 0)) /
+                    (equity + debt) *
+                    100,
+          debtEquity: bank ? null : debt / equity,
+          evEbitda: bank ? null : (price * shares + debt) / ebitda,
+          bookValue: equity / shares,
+          epsTtm: eps,
+          revenueTtm: rev,
+          profitTtm: pat,
+          revGrowth: pctChange(q[0].revenue, q[4].revenue),
+          profitGrowth: pctChange(q[0].pat, q[4].pat),
+          revGrowthTtm: (rev / revPrev - 1) * 100,
+          profitGrowthTtm: (pat / patPrev - 1) * 100,
+          ebitdaMargin: ebitda / rev * 100,
+          netMargin: pat / rev * 100,
+          isBank: bank,
+        ),
+      );
+    }
+    return out;
+  }
 }

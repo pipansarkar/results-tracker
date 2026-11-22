@@ -51,6 +51,19 @@ final guidanceProvider = FutureProvider.family<List<GuidanceItem>, String>(
   (ref, symbol) => ref.watch(repositoryProvider).guidance(symbol),
 );
 
+final screenerProvider = FutureProvider<List<StockMetrics>>(
+  (ref) => ref.watch(repositoryProvider).screener(),
+);
+
+/// Ratios for one stock (from the shared screener data).
+final metricsProvider = Provider.family<StockMetrics?, String>(
+  (ref, symbol) => ref
+      .watch(screenerProvider)
+      .value
+      ?.where((m) => m.symbol == symbol)
+      .firstOrNull,
+);
+
 final filingsProvider = FutureProvider.family<List<NewsItem>, String>(
   (ref, symbol) => ref.watch(repositoryProvider).filings(symbol),
 );

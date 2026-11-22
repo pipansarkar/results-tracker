@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'features/calendar/calendar_screen.dart';
 import 'features/company/company_screen.dart';
+import 'features/compare/compare_screen.dart';
 import 'features/concall/concall_screen.dart';
+import 'features/screener/screener_screen.dart';
 import 'features/search/search_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/today/today_screen.dart';
@@ -32,6 +34,14 @@ GoRouter buildRouter() => GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
+              path: '/screener',
+              builder: (_, _) => const ScreenerScreen(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
               path: '/watchlist',
               builder: (_, _) => const WatchlistScreen(),
             ),
@@ -44,7 +54,20 @@ GoRouter buildRouter() => GoRouter(
         ),
       ],
     ),
-    GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+    GoRoute(
+      path: '/search',
+      builder: (_, s) =>
+          SearchScreen(pick: s.uri.queryParameters['pick'] == '1'),
+    ),
+    GoRoute(
+      path: '/compare',
+      builder: (_, s) => CompareScreen(
+        initial: (s.uri.queryParameters['s'] ?? '')
+            .split(',')
+            .where((x) => x.isNotEmpty)
+            .toList(),
+      ),
+    ),
     GoRoute(
       path: '/company/:symbol',
       builder: (_, s) => CompanyScreen(symbol: s.pathParameters['symbol']!),
@@ -82,6 +105,11 @@ class _Shell extends StatelessWidget {
           icon: Icon(Icons.calendar_month_outlined),
           selectedIcon: Icon(Icons.calendar_month),
           label: 'Calendar',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.filter_alt_outlined),
+          selectedIcon: Icon(Icons.filter_alt),
+          label: 'Screener',
         ),
         NavigationDestination(
           icon: Icon(Icons.star_border),
