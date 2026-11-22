@@ -52,8 +52,10 @@ MAX_PROCESSED = 8000
 CAL_PAST_DAYS = 60        # calendar keeps / back-fills this many past days
 CAL_FUTURE_DAYS = 45
 UNIVERSE_REFRESH_DAYS = 7
-# Track the top N NSE companies by market cap (refreshed weekly).
-TOP_N = int(os.environ.get("TOP_N", "1000"))
+# Track every NSE company with market cap of at least MIN_MCAP ₹ crore
+# (refreshed weekly). TOP_N > 0 additionally caps the count.
+MIN_MCAP = float(os.environ.get("MIN_MCAP", "500"))
+TOP_N = int(os.environ.get("TOP_N", "0"))
 # Every scheduled run spends up to this long loading history for stocks that
 # don't have it yet, until the whole market is done. Fully automatic.
 BACKFILL_MINUTES = float(os.environ.get("BACKFILL_MINUTES", "12"))
@@ -138,11 +140,12 @@ class Pipeline:
     # -------------------------------------------------------------- universe
 
     def refresh_universe(self, force: bool = False) -> None:
-        """Weekly: the TOP_N NSE companies by market cap (default 1000),
-        with names, sectors and the Nifty 500 flag. Fully automatic."""
+        """Weekly: every NSE company with market cap ≥ MIN_MCAP (₹500 Cr by
+        default), with names, sectors and the Nifty 500 flag. Automatic."""
         last = self.state.get("universeRefreshed")
         fresh = last and date.fromisoformat(last) > self.today - timedelta(days=UNIVERSE_REFRESH_DAYS)
-        if not force and fresh and self.state.get("universeTopN") == TOP_N:
+        rule = f"{MIN_MCAP}/{TOP_N}"
+        if not force and fresh and self.state.get("universeRule") == rule:
             return
         try:
             eq = {r["symbol"]: r for r in self.nse.all_equities()}
@@ -151,8 +154,10 @@ class Pipeline:
         except Exception as e:
             log.warning("universe refresh failed, keeping current list: %s", e)
             return
-        ranked = sorted((s for s in caps if s in eq), key=lambda s: -caps[s])[:TOP_N]
-        if len(ranked) < min(TOP_N, 500):  # sanity check before replacing
+        ranked = sorted((s for s in caps if s in eq and caps[s] >= MIN_MCAP), key=lambda s: -caps[s])
+        if TOP_N > 0:
+            ranked = ranked[:TOP_N]
+        if len(ranked) < 500:  # sanity check before replacing
             log.warning("universe refresh: only %d ranked stocks, keeping current list", len(ranked))
             return
         uni = {}
@@ -163,11 +168,11 @@ class Pipeline:
                       "mcap": round(caps[s])}
         self.universe = uni
         self.state["universeRefreshed"] = self.today.isoformat()
-        self.state["universeTopN"] = TOP_N
+        self.state["universeRule"] = rule
         # Only the tracked universe matters for history loading.
         self.backfilled &= set(uni)
-        log.info("universe: top %d by market cap (smallest ₹%.0f Cr), %d in Nifty 500",
-                 len(uni), caps[ranked[-1]], sum(1 for s in uni if uni[s]["n500"]))
+        log.info("universe: %d companies with market cap ≥ ₹%.0f Cr, %d in Nifty 500",
+                 len(uni), MIN_MCAP, sum(1 for s in uni if uni[s]["n500"]))
 
     def sync_company_list(self) -> None:
         items = [{"symbol": s, "name": r["name"], "sector": r.get("sector", ""),
