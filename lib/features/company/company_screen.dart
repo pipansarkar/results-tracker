@@ -8,6 +8,7 @@ import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
 import 'charts.dart';
+import 'events_tab.dart';
 import 'financials_tab.dart';
 import 'ownership_tab.dart';
 import 'news_tab.dart';
@@ -28,7 +29,7 @@ class CompanyScreen extends ConsumerWidget {
     final sector = company.value?.sector ?? lite?.sector ?? '';
 
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Scaffold(
         appBar: AppBar(
           title: Column(
@@ -36,7 +37,11 @@ class CompanyScreen extends ConsumerWidget {
             children: [
               Text(name, overflow: TextOverflow.ellipsis),
               Text(
-                [symbol, if (sector.isNotEmpty) sector].join(' · '),
+                [
+                  symbol,
+                  if (lite?.capLabel != null) lite!.capLabel!,
+                  if (sector.isNotEmpty) sector,
+                ].join(' · '),
                 style: Theme.of(context).textTheme.bodySmall,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -58,6 +63,7 @@ class CompanyScreen extends ConsumerWidget {
               Tab(text: 'Results'),
               Tab(text: 'Financials'),
               Tab(text: 'Ownership'),
+              Tab(text: 'Events'),
               Tab(text: 'Concalls'),
               Tab(text: 'Guidance'),
               Tab(text: 'News'),
@@ -98,6 +104,16 @@ class CompanyScreen extends ConsumerWidget {
                       message: 'Ownership data is still loading.',
                     )
                   : OwnershipTab(c),
+            ),
+            company.when(
+              loading: () => loading,
+              error: asyncError,
+              data: (c) => c == null
+                  ? const EmptyState(
+                      icon: Icons.hourglass_top,
+                      message: 'Events are still loading.',
+                    )
+                  : EventsTab(c),
             ),
             _ConcallsTab(symbol),
             company.when(
@@ -220,7 +236,7 @@ class _ResultsTabState extends State<_ResultsTab> {
           ),
         ),
         _KeyRatios(widget.c.symbol),
-        _Glance(q: q, prev: prev, ago: ago),
+        _Glance(q: q, prev: prev, ago: ago, story: quarterStory(qs, _sel)),
         _Section(
           title: 'Trend',
           child: Column(
@@ -502,10 +518,11 @@ class _Peers extends ConsumerWidget {
 
 /// Hero card: the selected quarter at a glance.
 class _Glance extends StatelessWidget {
-  const _Glance({required this.q, this.prev, this.ago});
+  const _Glance({required this.q, this.prev, this.ago, this.story = const []});
   final QuarterResult q;
   final QuarterResult? prev;
   final QuarterResult? ago;
+  final List<String> story;
 
   @override
   Widget build(BuildContext context) {
@@ -527,6 +544,14 @@ class _Glance extends StatelessWidget {
               'Quarter ended ${dayFormat.format(q.endDate)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (story.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [for (final b in story) StoryBadge(b)],
+              ),
+            ],
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, box) {
@@ -1308,6 +1333,7 @@ class _GuidanceTab extends ConsumerWidget {
                 ),
               ),
               _LatestGuidanceChanges(c.symbol),
+              _Promises(c.symbol),
               if (items.isEmpty)
                 Padding(
                   padding: EdgeInsets.all(24),
@@ -1418,6 +1444,133 @@ class GuidanceChangeTile extends StatelessWidget {
               ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Commitments (capacity, plants, launches, capex…) across all calls, with
+/// their latest status.
+class _Promises extends ConsumerWidget {
+  const _Promises(this.symbol);
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final calls =
+        (ref.watch(concallsProvider(symbol)).value ?? const <Concall>[])
+            .where((c) => !c.isDocument)
+            .toList()
+          ..sort(
+            (a, b) =>
+                (a.date ?? DateTime(2000)).compareTo(b.date ?? DateTime(2000)),
+          );
+    // item (normalised) -> (first period, latest promise, latest period)
+    final latest = <String, (String, Promise, String)>{};
+    for (final c in calls) {
+      for (final p in c.forLang('en').promises) {
+        final k = p.item
+            .toLowerCase()
+            .replaceAll(RegExp(r'[^a-z0-9 ]'), '')
+            .trim();
+        final first = latest[k]?.$1 ?? c.period;
+        latest[k] = (first, p, c.period);
+      }
+    }
+    if (latest.isEmpty) return const SizedBox.shrink();
+    final order = {
+      'delayed': 0,
+      'dropped': 1,
+      'on_track': 2,
+      'new': 3,
+      'completed': 4,
+    };
+    final items = latest.values.toList()
+      ..sort(
+        (a, b) => (order[a.$2.status] ?? 9).compareTo(order[b.$2.status] ?? 9),
+      );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Promises tracker',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            Text(
+              'Capacity, capex, launches and other commitments made on calls.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            for (final (first, p, last) in items) _PromiseTile(p, first, last),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PromiseTile extends StatelessWidget {
+  const _PromiseTile(this.p, this.first, this.last);
+  final Promise p;
+  final String first, last;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (p.status) {
+      'completed' => (gainColor, 'Completed'),
+      'on_track' => (Colors.blue, 'On track'),
+      'delayed' => (Colors.amber.shade800, 'Delayed'),
+      'dropped' => (lossColor, 'Dropped'),
+      _ => (Colors.grey, 'New'),
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  p.item,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  [
+                    if (p.target != null) 'Target ${p.target}',
+                    first == last
+                        ? 'said in $first'
+                        : 'since $first, last update $last',
+                    if ((p.note ?? '').isNotEmpty) p.note!,
+                  ].join(' · '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(

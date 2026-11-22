@@ -57,6 +57,7 @@ const _filterKeys = [
   'rgt',
   'ebm',
   'npm',
+  'dy',
 ];
 
 /// Metrics shown as pills on each row (plus the sort metric).
@@ -73,6 +74,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
   String _q = '';
   String? _sector;
   bool _n500 = false;
+  final Set<String> _caps = {};
   Map<String, Range> _filters = {};
   String? _preset;
   String _sort = 'mc';
@@ -81,6 +83,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
   bool _pass(StockMetrics m, CompanyLite? c) {
     if (_n500 && !(c?.nifty500 ?? false)) return false;
+    if (_caps.isNotEmpty && !_caps.contains(c?.cap)) return false;
     if (_sector != null && c?.sector != _sector) return false;
     if (_q.isNotEmpty) {
       final q = _q.toLowerCase();
@@ -122,8 +125,13 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Screener'),
+        title: const Text('Screener'),
         actions: [
+          IconButton(
+            tooltip: 'Save this screen & get alerts',
+            icon: const Icon(Icons.bookmark_add_outlined),
+            onPressed: _saveScreen,
+          ),
           PopupMenuButton<String>(
             tooltip: 'Sort by',
             icon: const Icon(Icons.sort),
@@ -189,6 +197,62 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
                       label: Text(p.label),
                       selected: _preset == p.label,
                       onSelected: (_) => _applyPreset(p),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (ref.watch(savedScreensProvider).isNotEmpty)
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                children: [
+                  for (final sc in ref.watch(savedScreensProvider))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onLongPress: () => _deleteScreen(sc),
+                        child: ActionChip(
+                          avatar: const Icon(Icons.bookmark, size: 16),
+                          label: Text(sc.name),
+                          onPressed: () => setState(() {
+                            _filters = {
+                              for (final e in sc.filters.entries)
+                                e.key: (e.value[0], e.value[1]),
+                            };
+                            _sector = sc.sector;
+                            _n500 = sc.n500;
+                            _caps
+                              ..clear()
+                              ..addAll(sc.caps);
+                            _preset = null;
+                          }),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              children: [
+                for (final e in capLabels.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      label: Text(e.value),
+                      selected: _caps.contains(e.key),
+                      onSelected: (v) => setState(
+                        () => v ? _caps.add(e.key) : _caps.remove(e.key),
+                      ),
                     ),
                   ),
               ],
@@ -302,6 +366,64 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
     );
   }
 
+  Future<void> _saveScreen() async {
+    if (_filters.isEmpty && _sector == null && !_n500 && _caps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pick a quick screen or set filters first.'),
+        ),
+      );
+      return;
+    }
+    final name = await promptText(
+      context,
+      'Save screen',
+      'e.g. Cheap quality midcaps',
+      initial: _preset ?? '',
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await ref
+        .read(savedScreensProvider.notifier)
+        .save(
+          name.trim(),
+          {
+            for (final e in _filters.entries) e.key: [e.value.$1, e.value.$2],
+          },
+          sector: _sector,
+          n500: _n500,
+          caps: _caps.toList(),
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Saved "${name.trim()}". You\'ll get an alert when a new stock qualifies.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteScreen(SavedScreen sc) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "${sc.name}"?'),
+        content: const Text('You will stop getting alerts for this screen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await ref.read(savedScreensProvider.notifier).delete(sc.id);
+  }
+
   static String _rangeLabel(MetricDef d, Range r) {
     final (lo, hi) = r;
     String f(double v) => metricValue(v, d.unit);
@@ -407,6 +529,7 @@ class _Row extends StatelessWidget {
                     Text(
                       [
                         m.symbol,
+                        if (c?.capLabel != null) c!.capLabel!,
                         if ((c?.sector ?? '').isNotEmpty) c!.sector,
                       ].join(' · '),
                       style: Theme.of(context).textTheme.bodySmall,

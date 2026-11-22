@@ -41,6 +41,21 @@ abstract class Repository {
 
   /// Results-season scoreboard (one doc), or null before the season starts.
   Future<Season?> season();
+
+  /// Order wins across the market, last ~30 days (one doc).
+  Future<List<OrderWin>> orders();
+
+  /// IPOs: open, upcoming, recently listed (one doc).
+  Future<IpoBoard> ipos();
+
+  /// Saves a screen so the pipeline can alert on new qualifiers. Returns its id.
+  Future<String?> saveScreen(
+    String name,
+    Map<String, List<double?>> filters, {
+    String? sector,
+    bool n500 = false,
+    List<String> caps = const [],
+  });
 }
 
 String dateId(DateTime d) =>

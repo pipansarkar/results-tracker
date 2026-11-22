@@ -109,7 +109,7 @@ void main() {
     // Add to watchlist from the app bar.
     await tester.tap(find.byTooltip('Add to watchlist').first);
     await tester.pump();
-    expect(find.byTooltip('Remove from watchlist'), findsWidgets);
+    expect(find.byTooltip('In My watchlist'), findsWidgets);
 
     Future<void> tapTab(String name) async {
       final tab = find.widgetWithText(Tab, name).first;
@@ -280,5 +280,50 @@ void main() {
     expect(find.text('Key ratios'), findsOneWidget);
     expect(find.text('P/E'), findsOneWidget);
     expect(find.text('ROE'), findsOneWidget);
+  });
+
+  testWidgets('Events tab, IPOs, order wins and multiple watchlists', (tester) async {
+    await pumpApp(tester);
+    // Company: Events tab with order book, orders, ratings, dividends.
+    await tester.tap(find.text('HDFC Bank'));
+    await tester.pumpAndSettle();
+    final events = find.widgetWithText(Tab, 'Events');
+    await tester.ensureVisible(events);
+    await tester.tap(events);
+    await tester.pumpAndSettle();
+    expect(find.text('Order book'), findsWidgets);
+    expect(find.text('Order wins'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // IPOs.
+    await tester.tap(find.text('IPOs'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Bright Energy'), findsOneWidget);
+    await tester.tap(find.textContaining('Bright Energy'));
+    await tester.pumpAndSettle();
+    expect(find.text('Subscription by category'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // Order wins feed.
+    await tester.tap(find.text('Order wins'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('of annual revenue'), findsWidgets);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // Multiple watchlists: create a second list.
+    await tester.tap(find.text('Watchlist').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New list'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Defence');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Defence (0)'), findsOneWidget);
+    expect(find.textContaining('My watchlist'), findsWidgets);
   });
 }

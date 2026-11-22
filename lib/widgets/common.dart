@@ -43,16 +43,109 @@ class WatchButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final watched = ref.watch(watchlistProvider).contains(symbol);
+    final lists = ref.watch(watchlistsProvider);
+    final inLists = [
+      for (final e in lists.entries)
+        if (e.value.contains(symbol)) e.key,
+    ];
+    final watched = inLists.isNotEmpty;
     return IconButton(
-      tooltip: watched ? 'Remove from watchlist' : 'Add to watchlist',
+      tooltip: watched ? 'In ${inLists.join(', ')}' : 'Add to watchlist',
       icon: Icon(
         watched ? Icons.star : Icons.star_border,
         color: watched ? Colors.amber.shade700 : null,
       ),
-      onPressed: () => ref.read(watchlistProvider.notifier).toggle(symbol),
+      onPressed: () {
+        final n = ref.read(watchlistsProvider.notifier);
+        if (lists.length == 1) {
+          n.toggle(symbol);
+        } else {
+          showModalBottomSheet<void>(
+            context: context,
+            showDragHandle: true,
+            builder: (_) => WatchlistPicker(symbol),
+          );
+        }
+      },
     );
   }
+}
+
+/// Bottom sheet: tick which watchlists a stock belongs to.
+class WatchlistPicker extends ConsumerWidget {
+  const WatchlistPicker(this.symbol, {super.key});
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lists = ref.watch(watchlistsProvider);
+    final n = ref.read(watchlistsProvider.notifier);
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              'Add $symbol to…',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          for (final e in lists.entries)
+            CheckboxListTile(
+              value: e.value.contains(symbol),
+              title: Text(e.key),
+              subtitle: Text('${e.value.length} stocks'),
+              onChanged: (_) => n.toggle(symbol, list: e.key),
+            ),
+          ListTile(
+            leading: const Icon(Icons.add),
+            title: const Text('New list'),
+            onTap: () async {
+              final name = await promptText(context, 'New watchlist', 'Name');
+              if (name != null && await n.create(name)) {
+                await n.toggle(symbol, list: name.trim());
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+/// Simple text-input dialog. Returns null when cancelled.
+Future<String?> promptText(
+  BuildContext context,
+  String title,
+  String hint, {
+  String initial = '',
+}) {
+  final c = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        maxLength: 40,
+        decoration: InputDecoration(hintText: hint),
+        onSubmitted: (v) => Navigator.pop(ctx, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, c.text),
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Banner shown while the app runs on generated sample data.
@@ -183,6 +276,47 @@ class CallTypeLabel extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+/// "Record revenue", "Margin up 140 bps"… badge.
+class StoryBadge extends StatelessWidget {
+  const StoryBadge(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final bad = RegExp(
+      r'down|Lowest|loss',
+      caseSensitive: false,
+    ).hasMatch(text);
+    final color = bad ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            bad ? Icons.trending_down : Icons.auto_awesome,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

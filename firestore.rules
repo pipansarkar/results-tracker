@@ -15,6 +15,19 @@ service cloud.firestore {
     match /screener/{n}  { allow read: if true; allow write: if false; }
     match /activity/{sym} { allow read: if true; allow write: if false; }
     match /deals/{doc}    { allow read: if true; allow write: if false; }
+    match /orders/{doc}   { allow read: if true; allow write: if false; }
+
+    // Saved screens: the app may create one (no login), with strict limits.
+    // Only the pipeline reads them (to send alerts) and updates members.
+    match /screens/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['name', 'filters', 'sector', 'n500', 'caps', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.filters is map && request.resource.data.filters.size() <= 15
+        && (!('caps' in request.resource.data) || (request.resource.data.caps is list && request.resource.data.caps.size() <= 4))
+        && (!('sector' in request.resource.data) || request.resource.data.sector == null
+            || (request.resource.data.sector is string && request.resource.data.sector.size() <= 80));
+      allow read, update, delete: if false;
+    }
 
     // Everything else (incl. pipeline_state) is closed.
     match /{document=**} { allow read, write: if false; }

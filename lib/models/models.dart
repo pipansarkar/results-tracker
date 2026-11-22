@@ -18,23 +18,39 @@ List<String> _strings(dynamic v) =>
 String topicForSymbol(String symbol) =>
     'stock_${symbol.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~]'), '_')}';
 
+/// Market-cap bucket by rank (SEBI/AMFI style): 1-100 large, 101-250 mid,
+/// 251-500 small, 501+ micro.
+const capLabels = {
+  'large': 'Large cap',
+  'mid': 'Mid cap',
+  'small': 'Small cap',
+  'micro': 'Micro cap',
+};
+
 class CompanyLite {
   final String symbol;
   final String name;
   final String sector;
   final bool nifty500;
+
+  /// large | mid | small | micro
+  final String? cap;
   const CompanyLite({
     required this.symbol,
     required this.name,
     required this.sector,
     this.nifty500 = false,
+    this.cap,
   });
+
+  String? get capLabel => capLabels[cap];
 
   factory CompanyLite.fromMap(Map<String, dynamic> m) => CompanyLite(
     symbol: m['symbol'] as String,
     name: m['name'] as String? ?? m['symbol'] as String,
     sector: m['sector'] as String? ?? '',
     nifty500: m['n500'] as bool? ?? false,
+    cap: m['cap'] as String?,
   );
 }
 
@@ -189,6 +205,10 @@ class Company {
   /// Shareholding pattern by quarter, newest first.
   final List<HoldingPoint> holding;
 
+  /// Dividends (newest first) and other corporate actions, last ~3 years.
+  final List<Dividend> dividends;
+  final List<CorpAction> corpActions;
+
   const Company({
     required this.symbol,
     required this.name,
@@ -196,6 +216,8 @@ class Company {
     required this.quarters,
     this.credibility = const Credibility(),
     this.holding = const [],
+    this.dividends = const [],
+    this.corpActions = const [],
   });
 
   QuarterResult? get latest => quarters.isEmpty ? null : quarters.first;
@@ -216,6 +238,17 @@ class Company {
       name: m['name'] as String? ?? m['symbol'] as String,
       sector: m['sector'] as String? ?? '',
       quarters: qs,
+      dividends: [
+        for (final d in (m['dividends'] as List? ?? []))
+          Dividend.fromMap(Map<String, dynamic>.from(d as Map)),
+      ],
+      corpActions: [
+        for (final d in (m['corpActions'] as List? ?? []))
+          CorpAction(
+            DateTime.parse((d as Map)['exDate'] as String),
+            d['subject'] as String? ?? '',
+          ),
+      ],
       holding: [
         for (final h in (m['holding'] as List? ?? []))
           HoldingPoint.fromMap(Map<String, dynamic>.from(h as Map)),
@@ -261,6 +294,8 @@ class SummaryLang {
   final List<String> risks;
   final List<String> redFlags;
   final List<String> quotes;
+  final OrderBook? orderBook;
+  final List<Promise> promises;
   const SummaryLang({
     this.overview,
     this.highlights = const [],
@@ -275,6 +310,8 @@ class SummaryLang {
     this.risks = const [],
     this.redFlags = const [],
     this.quotes = const [],
+    this.orderBook,
+    this.promises = const [],
   });
 
   bool get isEmpty =>
@@ -314,6 +351,15 @@ class SummaryLang {
           risks: _strings(m['risks']),
           redFlags: _strings(m['redFlags']),
           quotes: _strings(m['quotes']),
+          orderBook: m['orderBook'] == null
+              ? null
+              : OrderBook.fromMap(
+                  Map<String, dynamic>.from(m['orderBook'] as Map),
+                ),
+          promises: [
+            for (final p in (m['promises'] as List? ?? []))
+              Promise.fromMap(Map<String, dynamic>.from(p as Map)),
+          ],
         );
 }
 
@@ -344,7 +390,15 @@ class Concall {
   final String? callType;
 
   String get _type =>
-      callType ?? (kind == 'earnings' ? 'earnings_call' : 'analyst_meet');
+      callType ??
+      switch (kind) {
+        'earnings' => 'earnings_call',
+        'presentation' => 'investor_presentation',
+        'press_release' => 'press_release',
+        _ => 'analyst_meet',
+      };
+
+  bool get isDocument => kind == 'presentation' || kind == 'press_release';
 
   bool get isEarnings => _type == 'earnings_call';
 
@@ -355,6 +409,8 @@ class Concall {
     'investor_call' => 'Investor call',
     'investor_conference' => 'Investor conference',
     'agm' => 'AGM',
+    'investor_presentation' => 'Presentation',
+    'press_release' => 'Press release',
     _ => 'Company call',
   };
 
@@ -526,6 +582,9 @@ class FeedItem {
   final DateTime? announcedAt;
   final double? reaction;
 
+  /// Badges like "Record revenue", "Margin up 140 bps".
+  final List<String> story;
+
   const FeedItem({
     required this.symbol,
     required this.name,
@@ -536,6 +595,7 @@ class FeedItem {
     this.patYoY,
     this.announcedAt,
     this.reaction,
+    this.story = const [],
   });
 
   factory FeedItem.fromMap(Map<String, dynamic> m) => FeedItem(
@@ -547,6 +607,7 @@ class FeedItem {
     revenueYoY: _d(m['revenueYoY']),
     patYoY: _d(m['patYoY']),
     reaction: _d(m['reaction']),
+    story: _strings(m['story']),
     announcedAt: m['announcedAt'] == null
         ? null
         : DateTime.tryParse(m['announcedAt'] as String),
@@ -616,6 +677,8 @@ class StockMetrics {
   final double? profitGrowthTtm;
   final double? ebitdaMargin; // TTM %
   final double? netMargin;
+  final double? dividendYield;
+  final double? dividendPerShare;
   final bool isBank;
 
   const StockMetrics({
@@ -641,6 +704,8 @@ class StockMetrics {
     this.profitGrowthTtm,
     this.ebitdaMargin,
     this.netMargin,
+    this.dividendYield,
+    this.dividendPerShare,
     this.isBank = false,
   });
 
@@ -668,6 +733,8 @@ class StockMetrics {
         profitGrowthTtm: _d(m['pgt']),
         ebitdaMargin: _d(m['ebm']),
         netMargin: _d(m['npm']),
+        dividendYield: _d(m['dy']),
+        dividendPerShare: _d(m['dps']),
         isBank: m['bank'] as bool? ?? false,
       );
 }
@@ -824,6 +891,14 @@ final List<MetricDef> metricDefs = [
     help: 'Profit ÷ revenue over the last 12 months.',
   ),
   MetricDef(
+    'dy',
+    'Dividend yield',
+    'Div. yield',
+    (m) => m.dividendYield,
+    '%',
+    help: 'Dividends per share paid in the last 12 months ÷ last close price.',
+  ),
+  MetricDef(
     'eps',
     'EPS (TTM)',
     'EPS',
@@ -916,6 +991,12 @@ class ActivityItem {
   final String? detail;
   final String? url;
 
+  /// Orders: value as % of trailing-12-month revenue. Ratings: outlook and
+  /// previous rating.
+  final double? pctRevenue;
+  final String? outlook;
+  final String? previous;
+
   const ActivityItem({
     required this.date,
     required this.kind,
@@ -931,6 +1012,9 @@ class ActivityItem {
     this.severity,
     this.detail,
     this.url,
+    this.pctRevenue,
+    this.outlook,
+    this.previous,
   });
 
   bool get isDeal => const {'bulk', 'block', 'sast', 'insider'}.contains(kind);
@@ -950,6 +1034,9 @@ class ActivityItem {
     severity: m['severity'] as String?,
     detail: m['detail'] as String?,
     url: m['url'] as String?,
+    pctRevenue: _d(m['pctRevenue']),
+    outlook: m['outlook'] as String?,
+    previous: m['previous'] as String?,
   );
 }
 
@@ -1060,4 +1147,227 @@ class Season {
     bestReaction: _list(m['bestReaction']),
     worstReaction: _list(m['worstReaction']),
   );
+}
+
+class Dividend {
+  final DateTime exDate;
+  final double amount;
+  final String kind; // interim | final | special
+  const Dividend(this.exDate, this.amount, this.kind);
+  factory Dividend.fromMap(Map<String, dynamic> m) => Dividend(
+    DateTime.parse(m['exDate'] as String),
+    _d(m['amount']) ?? 0,
+    m['kind'] as String? ?? 'final',
+  );
+}
+
+class CorpAction {
+  final DateTime exDate;
+  final String subject;
+  const CorpAction(this.exDate, this.subject);
+}
+
+class OrderBook {
+  final double? valueCr, bookToBill, inflowsCr, executionYears;
+  final String? asOf;
+  final List<String> commentary;
+  const OrderBook({
+    this.valueCr,
+    this.bookToBill,
+    this.inflowsCr,
+    this.executionYears,
+    this.asOf,
+    this.commentary = const [],
+  });
+  bool get isEmpty =>
+      valueCr == null &&
+      bookToBill == null &&
+      inflowsCr == null &&
+      commentary.isEmpty;
+  factory OrderBook.fromMap(Map<String, dynamic> m) => OrderBook(
+    valueCr: _d(m['valueCr']),
+    bookToBill: _d(m['bookToBill']),
+    inflowsCr: _d(m['inflowsCr']),
+    executionYears: _d(m['executionYears']),
+    asOf: m['asOf'] as String?,
+    commentary: _strings(m['commentary']),
+  );
+}
+
+/// A management commitment tracked across calls.
+class Promise {
+  final String item;
+  final String? target, note;
+
+  /// new | on_track | delayed | completed | dropped
+  final String status;
+  const Promise({
+    required this.item,
+    required this.status,
+    this.target,
+    this.note,
+  });
+  factory Promise.fromMap(Map<String, dynamic> m) => Promise(
+    item: m['item'] as String? ?? '',
+    status: m['status'] as String? ?? 'new',
+    target: m['target'] as String?,
+    note: m['note'] as String?,
+  );
+}
+
+/// An order win from the market-wide feed (orders/latest).
+class OrderWin {
+  final String symbol, name;
+  final ActivityItem item;
+  const OrderWin(this.symbol, this.name, this.item);
+  factory OrderWin.fromMap(Map<String, dynamic> m) => OrderWin(
+    m['symbol'] as String,
+    m['name'] as String? ?? m['symbol'] as String,
+    ActivityItem.fromMap(m),
+  );
+}
+
+class IpoSub {
+  final String category;
+  final double? times;
+  const IpoSub(this.category, this.times);
+}
+
+class Ipo {
+  final String symbol, name, status; // open | upcoming | listed
+  final bool sme;
+  final DateTime? open, close, listingDate;
+  final String? priceBand;
+  final double? subscribedTimes,
+      issuePrice,
+      listingClose,
+      listingGain,
+      lastClose,
+      gainSinceIssue;
+  final List<(String, String)> info;
+  final List<IpoSub> subscription;
+  final String? subscriptionAsOf;
+  const Ipo({
+    required this.symbol,
+    required this.name,
+    required this.status,
+    this.sme = false,
+    this.open,
+    this.close,
+    this.listingDate,
+    this.priceBand,
+    this.subscribedTimes,
+    this.issuePrice,
+    this.listingClose,
+    this.listingGain,
+    this.lastClose,
+    this.gainSinceIssue,
+    this.info = const [],
+    this.subscription = const [],
+    this.subscriptionAsOf,
+  });
+
+  static DateTime? _dt(dynamic v) =>
+      v == null ? null : DateTime.tryParse(v as String);
+
+  factory Ipo.fromMap(Map<String, dynamic> m) => Ipo(
+    symbol: m['symbol'] as String? ?? '',
+    name: m['name'] as String? ?? '',
+    status: m['status'] as String? ?? 'upcoming',
+    sme: m['sme'] as bool? ?? false,
+    open: _dt(m['open']),
+    close: _dt(m['close']),
+    listingDate: _dt(m['listingDate']),
+    priceBand: m['priceBand'] as String?,
+    subscribedTimes: _d(m['subscribedTimes']),
+    issuePrice: _d(m['issuePrice']),
+    listingClose: _d(m['listingClose']),
+    listingGain: _d(m['listingGain']),
+    lastClose: _d(m['lastClose']),
+    gainSinceIssue: _d(m['gainSinceIssue']),
+    info: [
+      for (final r in (m['info'] as List? ?? []))
+        ((r as Map)['t'] as String? ?? '', r['v'] as String? ?? ''),
+    ],
+    subscription: [
+      for (final r in (m['subscription'] as List? ?? []))
+        IpoSub((r as Map)['category'] as String? ?? '', _d(r['times'])),
+    ],
+    subscriptionAsOf: m['subscriptionAsOf'] as String?,
+  );
+
+  /// Overall subscription (the "Total" row if present).
+  double? get totalTimes =>
+      subscription
+          .where((s) => s.category.toLowerCase().startsWith('total'))
+          .firstOrNull
+          ?.times ??
+      subscribedTimes;
+
+  /// Value of an issue-info row by title prefix, e.g. 'Bid Lot'.
+  String? infoValue(String prefix) => info
+      .where((r) => r.$1.toLowerCase().startsWith(prefix.toLowerCase()))
+      .firstOrNull
+      ?.$2;
+}
+
+class IpoBoard {
+  final List<Ipo> open, upcoming, listed;
+  final DateTime? updatedAt;
+  const IpoBoard({
+    this.open = const [],
+    this.upcoming = const [],
+    this.listed = const [],
+    this.updatedAt,
+  });
+  factory IpoBoard.fromMap(Map<String, dynamic> m) {
+    List<Ipo> l(String k) => [
+      for (final e in (m[k] as List? ?? []))
+        Ipo.fromMap(Map<String, dynamic>.from(e as Map)),
+    ];
+    return IpoBoard(
+      open: l('open'),
+      upcoming: l('upcoming'),
+      listed: l('listed'),
+      updatedAt: m['updatedAt'] == null
+          ? null
+          : DateTime.tryParse(m['updatedAt'] as String),
+    );
+  }
+}
+
+/// "Story of the quarter": plain-English badges for quarters[i] (newest-first
+/// list), e.g. "Record revenue", "Margin up 140 bps", "Back to profit".
+List<String> quarterStory(List<QuarterResult> qs, [int i = 0]) {
+  if (i >= qs.length) return const [];
+  final q = qs[i];
+  final hist = qs.skip(i).take(12).toList();
+  final out = <String>[];
+  for (final (get, label) in <(double? Function(QuarterResult), String)>[
+    ((x) => x.revenue, 'revenue'),
+    ((x) => x.pat, 'profit'),
+  ]) {
+    final vals = hist.map(get).whereType<double>().toList();
+    final v = get(q);
+    if (v != null && vals.length >= 6) {
+      if (v >= vals.reduce((a, b) => a > b ? a : b)) {
+        out.add('Record $label');
+      } else if (v <= vals.reduce((a, b) => a < b ? a : b)) {
+        out.add('Lowest $label in ${vals.length} quarters');
+      }
+    }
+  }
+  final ago = i + 4 < qs.length ? qs[i + 4] : null;
+  if (ago != null && q.ebitdaMargin != null && ago.ebitdaMargin != null) {
+    final d = ((q.ebitdaMargin! - ago.ebitdaMargin!) * 100).round();
+    if (d.abs() >= 100)
+      out.add('Margin ${d > 0 ? 'up' : 'down'} ${d.abs()} bps');
+  }
+  if (ago != null && q.pat != null && ago.pat != null) {
+    if (q.pat! > 0 && ago.pat! <= 0) out.add('Back to profit');
+    if (q.pat! < 0 && ago.pat! >= 0) out.add('Swung to loss');
+  }
+  final g = pctChange(q.revenue, ago?.revenue);
+  if (g != null && g >= 25) out.add('Revenue up ${g.round()}% YoY');
+  return out.take(4).toList();
 }

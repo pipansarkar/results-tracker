@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/home_widget_sync.dart';
 import 'core/theme.dart';
+import 'data/providers.dart';
 import 'features/calendar/calendar_screen.dart';
 import 'features/company/company_screen.dart';
 import 'features/compare/compare_screen.dart';
 import 'features/concall/concall_screen.dart';
 import 'features/deals/deals_screen.dart';
+import 'features/ipo/ipo_screen.dart';
+import 'features/orders/orders_screen.dart';
+import 'features/weekly/weekly_screen.dart';
 import 'features/screener/screener_screen.dart';
 import 'features/search/search_screen.dart';
 import 'features/season/season_screen.dart';
@@ -64,6 +69,17 @@ GoRouter buildRouter() => GoRouter(
     ),
     GoRoute(path: '/season', builder: (_, _) => const SeasonScreen()),
     GoRoute(path: '/deals', builder: (_, _) => const DealsScreen()),
+    GoRoute(path: '/orders', builder: (_, _) => const OrdersScreen()),
+    GoRoute(path: '/ipos', builder: (_, _) => const IpoScreen()),
+    GoRoute(
+      path: '/ipo/:symbol',
+      builder: (_, s) => IpoDetailScreen(symbol: s.pathParameters['symbol']!),
+    ),
+    GoRoute(
+      path: '/weekly',
+      builder: (_, s) =>
+          WeeklyScreen(list: s.uri.queryParameters['list'] ?? ''),
+    ),
     GoRoute(
       path: '/compare',
       builder: (_, s) => CompareScreen(
@@ -137,8 +153,20 @@ class ResultsTrackerApp extends ConsumerStatefulWidget {
 class _ResultsTrackerAppState extends ConsumerState<ResultsTrackerApp> {
   late final _router = buildRouter();
 
+  void _syncWidget() {
+    syncHomeWidget(
+      today: ref.read(todayFeedProvider).value ?? const [],
+      calendar: ref.read(calendarProvider).value ?? const [],
+      watchlist: ref.read(watchlistProvider),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Keep the Android home-screen widget fresh.
+    ref.listen(todayFeedProvider, (_, _) => _syncWidget());
+    ref.listen(calendarProvider, (_, _) => _syncWidget());
+    ref.listen(watchlistProvider, (_, _) => _syncWidget());
     return MaterialApp.router(
       title: 'Quarterly Results & Concall Tracker',
       debugShowCheckedModeBanner: false,

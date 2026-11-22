@@ -69,6 +69,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                     ),
                   ),
                   const _SeasonCard(),
+                  const _MoreCards(),
                   SectionHeader('Results announced'),
                   ...feed.when(
                     loading: () => [
@@ -178,6 +179,14 @@ class _FeedCard extends StatelessWidget {
                 '${item.announcedAt == null ? '' : ' · ${timeFormat.format(item.announcedAt!)}'}',
                 style: t.bodySmall,
               ),
+              if (item.story.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [for (final b in item.story) StoryBadge(b)],
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -297,6 +306,78 @@ class _SeasonCard extends ConsumerWidget {
             'Big deals',
             'Bulk, block & stake changes',
             '/deals',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Second row: order wins and IPOs.
+class _MoreCards extends ConsumerWidget {
+  const _MoreCards();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ipos = ref.watch(iposProvider).value;
+    final orders = ref.watch(ordersProvider).value;
+    Widget card(IconData icon, String title, String sub, String route) =>
+        Expanded(
+          child: Card(
+            margin: EdgeInsets.zero,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => context.push(route),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(icon, size: 18),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            title,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      sub,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 2,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          card(
+            Icons.assignment_turned_in_outlined,
+            'Order wins',
+            orders == null
+                ? 'Latest contracts won'
+                : '${orders.length} in the last 30 days',
+            '/orders',
+          ),
+          const SizedBox(width: 8),
+          card(
+            Icons.rocket_launch_outlined,
+            'IPOs',
+            ipos == null
+                ? 'Open, upcoming & listed'
+                : '${ipos.open.length} open · ${ipos.upcoming.length} upcoming',
+            '/ipos',
           ),
         ],
       ),

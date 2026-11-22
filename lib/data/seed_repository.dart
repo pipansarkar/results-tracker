@@ -165,6 +165,19 @@ class SeedRepository implements Repository {
         name: name,
         sector: sector,
         quarters: quarters,
+        dividends: [
+          Dividend(
+            today.subtract(const Duration(days: 60)),
+            6.5 + i % 4,
+            'interim',
+          ),
+          Dividend(
+            today.subtract(const Duration(days: 240)),
+            8.0 + i % 3,
+            'final',
+          ),
+          Dividend(today.subtract(const Duration(days: 420)), 7.5, 'final'),
+        ],
         holding: [
           for (var k = 0; k < 6; k++)
             HoldingPoint(
@@ -431,6 +444,39 @@ class SeedRepository implements Repository {
           quotes: const [
             '[Sample] "We remain confident of double-digit growth over the medium term."',
           ],
+          orderBook: OrderBook(
+            valueCr: _round(q.revenue! * 9),
+            bookToBill: 2.3,
+            inflowsCr: _round(q.revenue! * 1.4),
+            executionYears: 2.5,
+            asOf: '30 Sep',
+            commentary: const [
+              '[Sample] 60% of the book is from government clients; execution over 24-30 months.',
+            ],
+          ),
+          promises: const [
+            Promise(
+              item: '[Sample] New plant in Gujarat',
+              target: 'Q4FY27',
+              status: 'on_track',
+            ),
+            Promise(
+              item: '[Sample] Net-debt free',
+              target: 'FY27',
+              status: 'completed',
+            ),
+            Promise(
+              item: '[Sample] Export capacity expansion',
+              target: 'Q2FY27',
+              status: 'delayed',
+              note: 'Now Q1FY28',
+            ),
+            Promise(
+              item: '[Sample] Entry into US market',
+              target: 'FY26',
+              status: 'dropped',
+            ),
+          ],
           highlights: [
             '[Sample] $name reported revenue of ₹${q.revenue!.toStringAsFixed(0)} Cr for ${q.period}.',
             '[Sample] EBITDA margin at ${q.ebitdaMargin!.toStringAsFixed(1)}%; management cited operating leverage.',
@@ -547,8 +593,28 @@ class SeedRepository implements Repository {
   Future<List<CompanyLite>> allCompanies() async =>
       _companies.values
           .map(
-            (c) =>
-                CompanyLite(symbol: c.symbol, name: c.name, sector: c.sector),
+            (c) => CompanyLite(
+              symbol: c.symbol,
+              name: c.name,
+              sector: c.sector,
+              cap: const [
+                'large',
+                'large',
+                'large',
+                'large',
+                'large',
+                'large',
+                'mid',
+                'mid',
+                'mid',
+                'mid',
+                'small',
+                'small',
+                'small',
+                'micro',
+                'micro',
+              ][_universe.indexWhere((u) => u.$1 == c.symbol) % 15],
+            ),
           )
           .toList()
         ..sort((a, b) => a.name.compareTo(b.name));
@@ -693,6 +759,33 @@ class SeedRepository implements Repository {
           detail: '[Sample] Resignation of Chief Financial Officer',
         ),
       ActivityItem(
+        date: d.subtract(const Duration(days: 1)),
+        kind: 'order',
+        valueCr: 420 + i * 35.0,
+        pctRevenue: 1.5 + i % 5,
+        who: '[Sample] National Highways Authority',
+        text: '[Sample] EPC contract for a 4-lane highway package',
+        detail: '24 months',
+      ),
+      ActivityItem(
+        date: d.subtract(const Duration(days: 12)),
+        kind: 'rating',
+        who: 'CRISIL',
+        text: 'CRISIL AA+',
+        side: i.isEven ? 'upgrade' : 'reaffirmed',
+        outlook: 'Stable',
+        previous: i.isEven ? 'CRISIL AA' : null,
+        detail: 'Long-term bank facilities',
+      ),
+      ActivityItem(
+        date: d.subtract(const Duration(days: 30)),
+        kind: 'mgmt',
+        side: 'appointment',
+        text: 'Change in Directors/ Key Managerial Personnel',
+        detail:
+            '[Sample] Appointment of Mr. A. Kumar as Chief Financial Officer',
+      ),
+      ActivityItem(
         date: d.subtract(const Duration(days: 20)),
         kind: 'holding',
         text: '[Sample] FII holding up 1.20% to 19.40%',
@@ -757,4 +850,76 @@ class SeedRepository implements Repository {
       ],
     );
   }
+
+  @override
+  Future<List<OrderWin>> orders() async => [
+    for (final u in _universe.take(10))
+      OrderWin(
+        u.$1,
+        u.$2,
+        (await activity(u.$1)).firstWhere((a) => a.kind == 'order'),
+      ),
+  ];
+
+  @override
+  Future<IpoBoard> ipos() async {
+    final t = DateTime(_now.year, _now.month, _now.day);
+    return IpoBoard(
+      open: [
+        Ipo(
+          symbol: 'SAMPLEIPO',
+          name: '[Sample] Bright Energy Limited',
+          status: 'open',
+          open: t.subtract(const Duration(days: 1)),
+          close: t.add(const Duration(days: 2)),
+          priceBand: 'Rs.129 to Rs.136',
+          info: const [
+            ('Issue Type', 'Book Building'),
+            ('Price Range', 'Rs. 129 to Rs. 136 per Equity Share'),
+            ('Bid Lot', '110 Equity Shares and in multiples thereof'),
+            ('Face Value', 'Rs. 2 per Equity Share'),
+          ],
+          subscription: const [
+            IpoSub('Qualified Institutional Buyers(QIBs)', 1.37),
+            IpoSub('Non Institutional Investors', 0.85),
+            IpoSub('Retail Individual Investors(RIIs)', 2.4),
+            IpoSub('Total', 1.6),
+          ],
+        ),
+      ],
+      upcoming: [
+        Ipo(
+          symbol: 'SAMPLESME',
+          name: '[Sample] Green Agro Industries Limited',
+          status: 'upcoming',
+          sme: true,
+          open: t.add(const Duration(days: 3)),
+          close: t.add(const Duration(days: 5)),
+          priceBand: 'Rs.130 to Rs.142',
+        ),
+      ],
+      listed: [
+        Ipo(
+          symbol: 'SAMPLELIST',
+          name: '[Sample] Metro Logistics Limited',
+          status: 'listed',
+          listingDate: t.subtract(const Duration(days: 6)),
+          issuePrice: 94,
+          listingClose: 118.5,
+          listingGain: 26.06,
+          lastClose: 112,
+          gainSinceIssue: 19.15,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<String?> saveScreen(
+    String name,
+    Map<String, List<double?>> filters, {
+    String? sector,
+    bool n500 = false,
+    List<String> caps = const [],
+  }) async => 'sample-${name.hashCode.abs()}';
 }

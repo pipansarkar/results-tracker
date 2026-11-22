@@ -134,4 +134,40 @@ class FirestoreRepository implements Repository {
     final doc = await _db.collection('meta').doc('season').get();
     return doc.data() == null ? null : Season.fromMap(doc.data()!);
   }
+
+  @override
+  Future<List<OrderWin>> orders() async {
+    final doc = await _db.collection('orders').doc('latest').get();
+    return [
+      for (final e in (doc.data()?['items'] as List? ?? []))
+        OrderWin.fromMap(Map<String, dynamic>.from(e as Map)),
+    ];
+  }
+
+  @override
+  Future<IpoBoard> ipos() async {
+    final doc = await _db.collection('meta').doc('ipos').get();
+    return doc.data() == null
+        ? const IpoBoard()
+        : IpoBoard.fromMap(doc.data()!);
+  }
+
+  @override
+  Future<String?> saveScreen(
+    String name,
+    Map<String, List<double?>> filters, {
+    String? sector,
+    bool n500 = false,
+    List<String> caps = const [],
+  }) async {
+    final ref = await _db.collection('screens').add({
+      'name': name,
+      'filters': filters,
+      'sector': sector,
+      'n500': n500,
+      'caps': caps,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    return ref.id;
+  }
 }

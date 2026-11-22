@@ -73,6 +73,12 @@ ENRICH_VERSION = 3    # bump to re-run per-company enrichment (calls, docs, divi
 SUMMARY_MINUTES = float(os.environ.get("SUMMARY_MINUTES", "12"))
 
 
+def _cap_class(rank: int) -> str:
+    """SEBI/AMFI-style buckets by market-cap rank: 1-100 large, 101-250 mid,
+    251-500 small, 501+ micro."""
+    return "large" if rank <= 100 else "mid" if rank <= 250 else "small" if rank <= 500 else "micro"
+
+
 def _doc_kind(desc: str, text: str) -> Optional[str]:
     blob = f"{desc} {text}".lower()
     if "investor presentation" in blob:
@@ -165,7 +171,7 @@ class Pipeline:
         default), with names, sectors and the Nifty 500 flag. Automatic."""
         last = self.state.get("universeRefreshed")
         fresh = last and date.fromisoformat(last) > self.today - timedelta(days=UNIVERSE_REFRESH_DAYS)
-        rule = f"{MIN_MCAP}/{TOP_N}"
+        rule = f"{MIN_MCAP}/{TOP_N}/cap1"
         if not force and fresh and self.state.get("universeRule") == rule:
             return
         try:
@@ -182,11 +188,11 @@ class Pipeline:
             log.warning("universe refresh: only %d ranked stocks, keeping current list", len(ranked))
             return
         uni = {}
-        for s in ranked:
+        for rank, s in enumerate(ranked, 1):
             extra = n500.get(s, {})
             uni[s] = {"symbol": s, "name": extra.get("name") or eq[s]["name"],
                       "sector": extra.get("sector", ""), "n500": "1" if s in n500 else "",
-                      "mcap": round(caps[s])}
+                      "mcap": round(caps[s]), "cap": _cap_class(rank)}
         self.universe = uni
         self.state["universeRefreshed"] = self.today.isoformat()
         self.state["universeRule"] = rule
@@ -198,7 +204,8 @@ class Pipeline:
     def sync_company_list(self) -> None:
         items = [{"symbol": s, "name": r["name"], "sector": r.get("sector", ""),
                   **({"n500": True} if r.get("n500") else {}),
-                  **({"mcap": r["mcap"]} if r.get("mcap") else {})}
+                  **({"mcap": r["mcap"]} if r.get("mcap") else {}),
+                  **({"cap": r["cap"]} if r.get("cap") else {})}
                  for s, r in sorted(self.universe.items())]
         h = _hash(items)
         if self.state.get("universeHash") != h:
@@ -1013,13 +1020,15 @@ class Pipeline:
         pushes = 0
         for sid, sc in screens[:2000]:
             filters = sc.get("filters") or {}
-            sector, n500 = sc.get("sector"), sc.get("n500")
+            sector, n500, caps = sc.get("sector"), sc.get("n500"), set(sc.get("caps") or [])
 
             def ok(sym, r):
                 info = self.universe.get(sym, {})
                 if sector and info.get("sector") != sector:
                     return False
                 if n500 and not info.get("n500"):
+                    return False
+                if caps and info.get("cap") not in caps:
                     return False
                 for k, rng in filters.items():
                     v = r.get(k)
@@ -1402,7 +1411,8 @@ def load_universe(store: Store) -> Dict[str, Dict[str, str]]:
     doc = store.get("meta/companies")
     if doc and doc.get("items"):
         return {i["symbol"]: {"symbol": i["symbol"], "name": i["name"], "sector": i.get("sector", ""),
-                              "n500": "1" if i.get("n500") else "", "mcap": i.get("mcap")}
+                              "n500": "1" if i.get("n500") else "", "mcap": i.get("mcap"),
+                              "cap": i.get("cap")}
                 for i in doc["items"]}
     return load_csv_universe()
 
