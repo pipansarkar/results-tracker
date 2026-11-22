@@ -151,6 +151,8 @@ class Pipeline:
                 continue
             self._process_filings(self._one_per_quarter(filings), announce=False)
             self.backfilled.add(s)
+            if len(self.backfilled) % 25 == 0:
+                self.save_state()  # long backfills never lose progress
         if symbols:
             log.info("backfilled %d stocks (%d/%d done)", len(symbols), len(self.backfilled), len(self.universe))
 
@@ -500,6 +502,8 @@ def main() -> None:
     p.add_argument("--symbols", help="comma-separated NSE symbols to limit the run")
     p.add_argument("--days", type=int, default=2, help="look-back window for new filings")
     p.add_argument("--backfill", action="store_true", help="backfill history for --symbols now")
+    p.add_argument("--backfill-all", action="store_true",
+                   help="one-off: load history for every remaining stock in this run")
     p.add_argument("--morning", action="store_true", help="send today's alerts")
     p.add_argument("--refresh-universe", action="store_true", help="force refresh of the NSE stock list")
     p.add_argument("--max-summaries", type=int, default=int(os.environ.get("MAX_SUMMARIES", "8")))
@@ -526,6 +530,8 @@ def main() -> None:
         pipe.process_results(args.days)
         if args.backfill and symbols:
             pipe.backfill(symbols)
+        elif args.backfill_all:
+            pipe.backfill(limit=len(pipe.universe))
         elif not args.no_history and not symbols:
             pipe.backfill()
         pipe.process_board_meetings()

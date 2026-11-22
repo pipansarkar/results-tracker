@@ -54,6 +54,7 @@ class NseClient:
         self.s.headers.update(HEADERS)
         self.min_interval = min_interval
         self._last = 0.0
+        self._last_archive = 0.0
         self._primed = False
 
     def _wait(self) -> None:
@@ -85,7 +86,14 @@ class NseClient:
 
     def download(self, url: str) -> bytes:
         self._prime()
-        self._wait()
+        if "nsearchives" in url:
+            # Static archive host: a lighter, separate rate limit.
+            dt = time.time() - self._last_archive
+            if dt < 0.3:
+                time.sleep(0.3 - dt)
+            self._last_archive = time.time()
+        else:
+            self._wait()
         r = self.s.get(url, timeout=60)
         r.raise_for_status()
         return r.content

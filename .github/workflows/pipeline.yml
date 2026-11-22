@@ -21,7 +21,8 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 28
+    # Normal runs ~10 min; the one-off --backfill-all run can take hours.
+    timeout-minutes: ${{ contains(github.event.inputs.args, '--backfill-all') && 350 || 28 }}
     defaults:
       run:
         working-directory: backend

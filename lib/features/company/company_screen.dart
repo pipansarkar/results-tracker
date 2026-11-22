@@ -20,7 +20,16 @@ class CompanyScreen extends ConsumerWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(company.value?.name ?? symbol),
+          title: Text(
+            company.value?.name ??
+                ref
+                    .watch(companiesProvider)
+                    .value
+                    ?.where((c) => c.symbol == symbol)
+                    .firstOrNull
+                    ?.name ??
+                symbol,
+          ),
           actions: [WatchButton(symbol)],
           bottom: const TabBar(
             tabs: [
