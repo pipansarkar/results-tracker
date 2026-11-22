@@ -253,3 +253,4 @@ def test_pick_model_prefers_newest_stable_flash():
                         M("text-embedding-004", ("embedContent",)), M("gemini-3.10-flash-tts")]
 
     assert summarize.pick_model(Client) == "gemini-3.8-flash"
+    assert summarize.pick_model(Client, lite=True) == "gemini-3.8-flash-lite"

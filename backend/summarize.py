@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import os
 import time
@@ -17,6 +18,7 @@ from typing import Any, Dict, Optional
 
 # Empty = pick the newest Flash model this key can use (Google retires
 # model names over time). Set GEMINI_MODEL to pin one.
+log = logging.getLogger(__name__)
 MODEL = os.environ.get("GEMINI_MODEL", "")
 _resolved: Optional[str] = None
 MAX_CHARS = int(os.environ.get("TRANSCRIPT_MAX_CHARS", "150000"))
@@ -31,16 +33,19 @@ def _version_key(name: str):
     return nums
 
 
-def pick_model(client) -> str:
-    """Newest stable 'flash' model (not lite/preview/tts/image) that supports
-    generateContent, from the key's own model list."""
+def pick_model(client, lite: bool = False) -> str:
+    """Newest stable 'flash' model (not preview/tts/image) that supports
+    generateContent, from the key's own model list. lite=True picks the
+    newest Flash-Lite instead (fallback when Flash is overloaded)."""
     names = []
     for m in client.models.list():
         name = (m.name or "").split("/")[-1]
         actions = getattr(m, "supported_actions", None) or []
         if "flash" not in name or (actions and "generateContent" not in actions):
             continue
-        if re.search(r"lite|preview|exp|tts|image|audio|live|thinking", name):
+        if re.search(r"preview|exp|tts|image|audio|live|thinking", name):
+            continue
+        if ("lite" in name) != lite:
             continue
         names.append(name)
     if not names:
@@ -153,10 +158,12 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     client = genai.Client(api_key=key)
     prompt = PROMPT.format(name=name, symbol=symbol, period=period,
                            previous=prev, transcript=text[:MAX_CHARS])
-    for attempt in range(3):
+    model = resolved_model(client)
+    tried_lite = False
+    for attempt in range(5):
         try:
             resp = client.models.generate_content(
-                model=resolved_model(client),
+                model=model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -166,14 +173,28 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
             )
             return json.loads(resp.text)
         except json.JSONDecodeError:
-            if attempt == 2:
+            if attempt >= 2:
                 raise
         except Exception as e:  # SDK raises its own error classes
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                if "PerDay" in msg or attempt == 2:
-                    raise QuotaExceeded(msg) from e
+                if "PerDay" in msg or attempt >= 2:
+                    raise QuotaExceeded(msg[:300]) from e
                 time.sleep(30 * (attempt + 1))  # per-minute limit: wait and retry
+                continue
+            if "503" in msg or "UNAVAILABLE" in msg or "500" in msg or "INTERNAL" in msg:
+                # Google overloaded: back off, then try Flash-Lite once.
+                if attempt >= 1 and not tried_lite and not MODEL:
+                    try:
+                        model = pick_model(client, lite=True)
+                        tried_lite = True
+                        log.info("Gemini busy; falling back to %s", model)
+                        continue
+                    except QuotaExceeded:
+                        pass
+                if attempt >= 4:
+                    raise QuotaExceeded("Gemini overloaded: " + msg[:200]) from e
+                time.sleep(15 * (attempt + 1))
                 continue
             if "404" in msg or "NOT_FOUND" in msg or "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
                 # Model/key problem, not this transcript's fault: stop the batch.
