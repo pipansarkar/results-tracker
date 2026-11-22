@@ -144,7 +144,7 @@ class StockSearchBar extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
     child: SearchBar(
-      hintText: tr('Search any NSE stock by name or symbol'),
+      hintText: tr('Search the top 1000 companies'),
       leading: const Icon(Icons.search),
       elevation: const WidgetStatePropertyAll(0),
       onTap: () => GoRouter.of(context).push('/search'),

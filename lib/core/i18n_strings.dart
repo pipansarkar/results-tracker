@@ -105,7 +105,7 @@ const Map<String, String> bnStrings = {
   'Sample data: connect Firebase to see live NSE results':
       'নমুনা ডেটা: লাইভ NSE ফলাফল দেখতে Firebase যুক্ত করুন',
   'Screener': 'স্ক্রিনার',
-  'Search any NSE stock by name or symbol':
+  'Search the top 1000 companies':
       'নাম বা সিম্বল দিয়ে যেকোনো NSE স্টক খুঁজুন',
   'Search company or NSE symbol': 'কোম্পানি বা NSE সিম্বল খুঁজুন',
   'Sector': 'সেক্টর',
@@ -242,7 +242,7 @@ const Map<String, String> hiStrings = {
   'Sample data: connect Firebase to see live NSE results':
       'नमूना डेटा: लाइव NSE नतीजों के लिए Firebase जोड़ें',
   'Screener': 'स्क्रीनर',
-  'Search any NSE stock by name or symbol':
+  'Search the top 1000 companies':
       'नाम या सिंबल से कोई भी NSE स्टॉक खोजें',
   'Search company or NSE symbol': 'कंपनी या NSE सिंबल खोजें',
   'Sector': 'सेक्टर',

@@ -52,6 +52,8 @@ MAX_PROCESSED = 8000
 CAL_PAST_DAYS = 60        # calendar keeps / back-fills this many past days
 CAL_FUTURE_DAYS = 45
 UNIVERSE_REFRESH_DAYS = 7
+# Track the top N NSE companies by market cap (refreshed weekly).
+TOP_N = int(os.environ.get("TOP_N", "1000"))
 # Every scheduled run spends up to this long loading history for stocks that
 # don't have it yet, until the whole market is done. Fully automatic.
 BACKFILL_MINUTES = float(os.environ.get("BACKFILL_MINUTES", "12"))
@@ -136,30 +138,41 @@ class Pipeline:
     # -------------------------------------------------------------- universe
 
     def refresh_universe(self, force: bool = False) -> None:
-        """Weekly: all NSE equities, sectors and Nifty 500 flag merged in."""
+        """Weekly: the TOP_N NSE companies by market cap (default 1000),
+        with names, sectors and the Nifty 500 flag. Fully automatic."""
         last = self.state.get("universeRefreshed")
-        if not force and last and date.fromisoformat(last) > self.today - timedelta(days=UNIVERSE_REFRESH_DAYS):
+        fresh = last and date.fromisoformat(last) > self.today - timedelta(days=UNIVERSE_REFRESH_DAYS)
+        if not force and fresh and self.state.get("universeTopN") == TOP_N:
             return
         try:
-            eq = self.nse.all_equities()
+            eq = {r["symbol"]: r for r in self.nse.all_equities()}
             n500 = {r["symbol"]: r for r in self.nse.nifty500()}
+            caps = self.nse.market_caps()
         except Exception as e:
             log.warning("universe refresh failed, keeping current list: %s", e)
             return
+        ranked = sorted((s for s in caps if s in eq), key=lambda s: -caps[s])[:TOP_N]
+        if len(ranked) < min(TOP_N, 500):  # sanity check before replacing
+            log.warning("universe refresh: only %d ranked stocks, keeping current list", len(ranked))
+            return
         uni = {}
-        for r in eq:
-            s = r["symbol"]
+        for s in ranked:
             extra = n500.get(s, {})
-            uni[s] = {"symbol": s, "name": extra.get("name") or r["name"],
-                      "sector": extra.get("sector", ""), "n500": "1" if s in n500 else ""}
-        if len(uni) > 1000:  # sanity check before replacing
-            self.universe = uni
-            self.state["universeRefreshed"] = self.today.isoformat()
-            log.info("universe: %d NSE stocks (%d in Nifty 500)", len(uni), len(n500))
+            uni[s] = {"symbol": s, "name": extra.get("name") or eq[s]["name"],
+                      "sector": extra.get("sector", ""), "n500": "1" if s in n500 else "",
+                      "mcap": round(caps[s])}
+        self.universe = uni
+        self.state["universeRefreshed"] = self.today.isoformat()
+        self.state["universeTopN"] = TOP_N
+        # Only the tracked universe matters for history loading.
+        self.backfilled &= set(uni)
+        log.info("universe: top %d by market cap (smallest ₹%.0f Cr), %d in Nifty 500",
+                 len(uni), caps[ranked[-1]], sum(1 for s in uni if uni[s]["n500"]))
 
     def sync_company_list(self) -> None:
         items = [{"symbol": s, "name": r["name"], "sector": r.get("sector", ""),
-                  **({"n500": True} if r.get("n500") else {})}
+                  **({"n500": True} if r.get("n500") else {}),
+                  **({"mcap": r["mcap"]} if r.get("mcap") else {})}
                  for s, r in sorted(self.universe.items())]
         h = _hash(items)
         if self.state.get("universeHash") != h:
@@ -188,7 +201,7 @@ class Pipeline:
         deadline = _t.time() + minutes * 60
         if symbols is None:
             todo = [s for s in self.universe if s not in self.backfilled]
-            todo.sort(key=lambda s: (not self.universe[s].get("n500"), s))
+            todo.sort(key=lambda s: -float(self.universe[s].get("mcap") or 0))
             symbols = todo
         done = 0
         for s in symbols:
@@ -819,6 +832,7 @@ class Pipeline:
 
         # Nifty 500 first, newest first.
         self.queue.sort(key=lambda q: q["filed"], reverse=True)
+        self.queue = [q for q in self.queue if q["symbol"] in self.universe]
         self.queue.sort(key=lambda q: not q.get("n500"))  # stable: keeps newest-first within groups
         import time as _t
         deadline = _t.time() + SUMMARY_MINUTES * 60
@@ -947,7 +961,8 @@ def load_universe(store: Store) -> Dict[str, Dict[str, str]]:
     doc = store.get("meta/companies")
     if doc and doc.get("items"):
         return {i["symbol"]: {"symbol": i["symbol"], "name": i["name"], "sector": i.get("sector", ""),
-                              "n500": "1" if i.get("n500") else ""} for i in doc["items"]}
+                              "n500": "1" if i.get("n500") else "", "mcap": i.get("mcap")}
+                for i in doc["items"]}
     return load_csv_universe()
 
 

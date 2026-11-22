@@ -173,6 +173,19 @@ class NseClient:
             "quarterEnd": r.get("qe_Date"),
         }
 
+    def market_caps(self) -> Dict[str, float]:
+        """Market cap (₹ crore) of every traded equity, one request."""
+        d = self.get_json("/api/live-analysis-stocksTraded")
+        rows = ((d or {}).get("total") or {}).get("data") or []
+        out: Dict[str, float] = {}
+        for r in rows:
+            if r.get("series") in ("EQ", "BE", "BZ") and r.get("totalMarketCapcsv"):
+                try:
+                    out[r["symbol"]] = float(r["totalMarketCapcsv"])
+                except (TypeError, ValueError):
+                    pass
+        return out
+
     def all_equities(self) -> List[Dict[str, str]]:
         """Every NSE main-board equity (EQUITY_L.csv). No sector column there,
         so callers merge sectors from the Nifty 500 list."""
