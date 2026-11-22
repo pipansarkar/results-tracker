@@ -40,6 +40,18 @@ const _presets = [
     'pg': (50, null),
   }, sort: 'pg'),
   _Preset('High margins', Icons.percent, {'npm': (20, null)}, sort: 'npm'),
+  _Preset('Guidance raised', Icons.north_east, {'gd': (1, null)}, sort: 'gr'),
+  _Preset('Guides 20%+ growth', Icons.flag_outlined, {
+    'gr': (20, null),
+  }, sort: 'gr'),
+  _Preset('Positive concall', Icons.sentiment_satisfied_alt, {
+    'tn': (1, null),
+    'lc': (null, 120),
+  }, sort: 'lc'),
+  _Preset('Delivers on guidance', Icons.verified_outlined, {
+    'cr': (75, null),
+  }, sort: 'cr'),
+  _Preset('Guidance cut', Icons.south_east, {'gd': (null, -1)}, sort: 'lc'),
 ];
 
 /// Metrics offered as filters in the sheet.
@@ -59,6 +71,25 @@ const _filterKeys = [
   'npm',
   'dy',
 ];
+
+/// Concall & management-guidance filters (min/max boxes).
+const _guidanceKeys = ['gr', 'gp', 'gm', 'cr', 'lc'];
+
+/// Choice filters for guidance change and concall tone.
+const _choiceFilters = {
+  'gd': [
+    ('Raised', (1.0, null)),
+    ('Maintained', (0.0, 0.0)),
+    ('Raised or maintained', (0.0, null)),
+    ('Cut', (null, -1.0)),
+  ],
+  'tn': [
+    ('Positive', (1.0, null)),
+    ('Neutral', (0.0, 0.0)),
+    ('Not cautious', (0.0, null)),
+    ('Cautious', (null, -1.0)),
+  ],
+};
 
 /// Metrics shown as pills on each row (plus the sort metric).
 const _rowKeys = ['mc', 'pe', 'roe', 'rg'];
@@ -112,7 +143,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
       _preset = p.label;
       _filters = Map.of(p.filters);
       _sort = p.sort;
-      _desc = !['pe', 'peg', 'pb', 'ev', 'de'].contains(p.sort);
+      _desc = !['pe', 'peg', 'pb', 'ev', 'de', 'lc'].contains(p.sort);
     }
   });
 
@@ -426,7 +457,12 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
   static String _rangeLabel(MetricDef d, Range r) {
     final (lo, hi) = r;
-    String f(double v) => metricValue(v, d.unit);
+    final choice = _choiceFilters[d.key]
+        ?.where((c) => c.$2 == r)
+        .firstOrNull;
+    if (choice != null) return '${d.short}: ${choice.$1}';
+    String f(double v) =>
+        d.unit == 'days' ? '${v.round()} days' : metricValue(v, d.unit);
     if (lo != null && hi != null) return '${d.short} ${f(lo)}–${f(hi)}';
     if (lo != null) return '${d.short} ≥ ${f(lo)}';
     return '${d.short} ≤ ${f(hi!)}';
@@ -573,7 +609,8 @@ class _Pill extends StatelessWidget {
     final isGrowth =
         d.unit == '%' &&
         (d.key == 'rg' || d.key == 'pg' || d.key == 'rgt' || d.key == 'pgt');
-    final color = isGrowth && v != null
+    final signed = isGrowth || d.unit == 'dir' || d.unit == 'tone';
+    final color = signed && v != null && (v != 0 || isGrowth)
         ? (v >= 0 ? gainColor : lossColor)
         : (highlight ? scheme.onPrimaryContainer : scheme.onSurface);
     return Container(
@@ -634,8 +671,11 @@ class _FilterSheet extends StatefulWidget {
 class _FilterSheetState extends State<_FilterSheet> {
   late String? _sector = widget.sector;
   late bool _n500 = widget.n500;
+  late final Map<String, Range?> _choice = {
+    for (final k in _choiceFilters.keys) k: widget.filters[k],
+  };
   late final Map<String, (TextEditingController, TextEditingController)> _c = {
-    for (final k in _filterKeys)
+    for (final k in [..._filterKeys, ..._guidanceKeys])
       k: (
         TextEditingController(text: _fmt(widget.filters[k]?.$1)),
         TextEditingController(text: _fmt(widget.filters[k]?.$2)),
@@ -697,6 +737,46 @@ class _FilterSheetState extends State<_FilterSheet> {
                   ),
                   const Divider(),
                   for (final k in _filterKeys) _rangeRow(metricDef(k)),
+                  const Divider(height: 28),
+                  Text(
+                    'Concall & management guidance',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'From the latest earnings / analyst call. Only companies '
+                    'whose call has been summarised are included.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  for (final e in _choiceFilters.entries) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      metricDef(e.key).label,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Any'),
+                          selected: _choice[e.key] == null,
+                          onSelected: (_) =>
+                              setState(() => _choice[e.key] = null),
+                        ),
+                        for (final (label, range) in e.value)
+                          ChoiceChip(
+                            label: Text(label),
+                            selected: _choice[e.key] == range,
+                            onSelected: (_) =>
+                                setState(() => _choice[e.key] = range),
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  for (final k in _guidanceKeys) _rangeRow(metricDef(k)),
                 ],
               ),
             ),
@@ -722,6 +802,9 @@ class _FilterSheetState extends State<_FilterSheet> {
                           final hi = double.tryParse(e.value.$2.text.trim());
                           if (lo != null || hi != null) f[e.key] = (lo, hi);
                         }
+                        for (final e in _choice.entries) {
+                          if (e.value != null) f[e.key] = e.value!;
+                        }
                         Navigator.pop(
                           context,
                           _FilterResult(_sector, _n500, f),
@@ -745,6 +828,7 @@ class _FilterSheetState extends State<_FilterSheet> {
       'Cr' => '₹ Cr',
       '%' => '%',
       'x' => '×',
+      'days' => 'days',
       _ => d.unit,
     };
     InputDecoration dec(String hint) => InputDecoration(

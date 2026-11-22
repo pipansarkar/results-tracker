@@ -985,6 +985,7 @@ class Pipeline:
             return
         companies = dict(self.store.list("companies"))
         rows = []
+        backfill_ci = 0
         for sym, info in sorted(self.universe.items()):
             doc = companies.get(sym) or {}
             m = metrics.compute(doc.get("quarters", []), prices.get(sym), doc.get("dividends"), self.today)
@@ -992,6 +993,22 @@ class Pipeline:
                 continue
             if sym in prices and "p" not in m:
                 m["p"] = round(prices[sym], 2)
+            ci = doc.get("callInfo")
+            if ci is None and "credibility" in doc and backfill_ci < 300:
+                backfill_ci += 1  # companies summarised before callInfo existed
+                try:
+                    ci = self._update_call_info(sym)
+                except Exception as e:
+                    log.warning("callInfo %s failed: %s", sym, e)
+            for src, key in (("gRev", "gr"), ("gPat", "gp"), ("gMgn", "gm"), ("gDir", "gd"),
+                             ("tone", "tn"), ("cred", "cr")):
+                if (ci or {}).get(src) is not None:
+                    m[key] = ci[src]
+            if (ci or {}).get("date"):
+                try:
+                    m["lc"] = (self.today - date.fromisoformat(ci["date"][:10])).days
+                except ValueError:
+                    pass
             rows.append({"s": sym, **m})
         old_chunks = self.state.get("screenerChunks", 0)
         n = 0
@@ -1011,6 +1028,15 @@ class Pipeline:
             self._saved_screens(rows)
         except Exception as e:
             log.warning("saved screens failed: %s", e)
+
+    def _update_call_info(self, sym: str, items: Optional[List[Dict]] = None) -> Dict:
+        """Refresh companies/{sym}.callInfo (latest call tone, guidance, credibility)."""
+        calls = [c for _, c in self.store.list(f"companies/{sym}/concalls") if c.get("v", 1) >= 2]
+        if items is None:
+            items = [x for _, x in self.store.list(f"companies/{sym}/guidance")]
+        info = gd.call_info(calls, items)
+        self.store.set(f"companies/{sym}", {"callInfo": info}, merge=True)
+        return info
 
     def _saved_screens(self, rows: List[Dict]) -> None:
         """Users' saved screens (screens/{id}): push 'screen_{id}' when a
@@ -1340,6 +1366,8 @@ class Pipeline:
                                      if (c.get("id") or c.get("period")) == nxt.get("previousPeriod")), None)
                 if prev_of_next is None or (prev_of_next.get("date") or "") < doc["date"]:
                     self._recompare(sym, doc, nxt, all_g)
+            if company:
+                self._update_call_info(sym, all_g)
 
             if filed >= self.today - timedelta(days=60):
                 self.add_event(call_date, {"symbol": sym, "type": "concall", "period": cid,
@@ -1479,14 +1507,16 @@ def main() -> None:
         if not symbols:
             pipe.process_ipos()
         pipe.process_pending_reactions()
-        if not symbols:
-            try:
-                pipe.process_screener()
-            except Exception as e:  # ratios must never block results/summaries
-                log.warning("screener failed: %s", e)
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
+        if not symbols:
+            try:  # after summaries, so the day's concall/guidance filters are current
+                first = pipe.state.get("screenerV") != 2  # one-off rebuild adding guidance fields
+                pipe.process_screener(force=first)
+                pipe.state["screenerV"] = 2
+            except Exception as e:  # ratios must never block results/summaries
+                log.warning("screener failed: %s", e)
         if not symbols:
             pipe.process_digest()
             pipe.process_weekly()

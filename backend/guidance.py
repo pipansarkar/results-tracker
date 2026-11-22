@@ -148,3 +148,41 @@ def diff(current: List[Dict], previous: List[Dict]) -> List[Dict]:
                         "statement": p.get("statement", "")})
     order = {"cut": 0, "raised": 1, "dropped": 2, "new": 3, "reiterated": 4}
     return sorted(out, key=lambda e: order[e["direction"]])
+
+
+_TONE = {"positive": 1, "neutral": 0, "cautious": -1}
+
+
+def call_info(concalls: List[Dict], items: List[Dict]) -> Dict:
+    """Compact concall/guidance facts for the screener (companies/{sym}.callInfo).
+
+    concalls: concall docs; items: guidance items. Returns
+    {date, type, tone (1/0/-1), gDir (1 raised / 0 maintained / -1 cut),
+     gRev, gPat, gMgn (guided % from the latest call), cred (met % if >= 2 checked)}.
+    """
+    calls = [c for c in concalls if c.get("kind", "earnings") in ("earnings", "analyst") and c.get("date")]
+    out: Dict = {}
+    if calls:
+        last = max(calls, key=lambda c: c["date"])
+        out["date"] = last["date"]
+        out["type"] = last.get("callType")
+        if last.get("tone") in _TONE:
+            out["tone"] = _TONE[last["tone"]]
+        dirs = {d.get("direction") for d in last.get("guidanceDiff") or []}
+        if "cut" in dirs:
+            out["gDir"] = -1
+        elif "raised" in dirs:
+            out["gDir"] = 1
+        elif dirs & {"reiterated", "new"}:
+            out["gDir"] = 0
+        lid = last.get("id") or last.get("period")
+        live = [i for i in items if i.get("status") != "superseded"]
+        for metric, key in (("revenue_growth_yoy", "gRev"), ("pat_growth_yoy", "gPat"), ("ebitda_margin", "gMgn")):
+            mine = [i for i in live if i.get("metric") == metric and (i.get("callId") or i.get("madeIn")) == lid]
+            vals = [m for m in (_mid(i) for i in mine) if m is not None]
+            if vals:
+                out[key] = round(max(vals), 1)
+    c = credibility([i for i in items if i.get("status") != "superseded"])
+    if c["met"] + c["missed"] >= 2:
+        out["cred"] = c["score"]
+    return out

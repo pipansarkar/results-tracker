@@ -679,6 +679,13 @@ class StockMetrics {
   final double? netMargin;
   final double? dividendYield;
   final double? dividendPerShare;
+
+  /// From the latest concall: guided revenue / profit growth and EBITDA
+  /// margin (%), guidance change (1 raised, 0 maintained, -1 cut), tone
+  /// (1 positive, 0 neutral, -1 cautious), guidance hit rate (%), and
+  /// days since that call.
+  final double? guidedRevGrowth, guidedPatGrowth, guidedMargin;
+  final double? guidanceDir, callTone, credibility, daysSinceCall;
   final bool isBank;
 
   const StockMetrics({
@@ -706,6 +713,13 @@ class StockMetrics {
     this.netMargin,
     this.dividendYield,
     this.dividendPerShare,
+    this.guidedRevGrowth,
+    this.guidedPatGrowth,
+    this.guidedMargin,
+    this.guidanceDir,
+    this.callTone,
+    this.credibility,
+    this.daysSinceCall,
     this.isBank = false,
   });
 
@@ -735,6 +749,13 @@ class StockMetrics {
         netMargin: _d(m['npm']),
         dividendYield: _d(m['dy']),
         dividendPerShare: _d(m['dps']),
+        guidedRevGrowth: _d(m['gr']),
+        guidedPatGrowth: _d(m['gp']),
+        guidedMargin: _d(m['gm']),
+        guidanceDir: _d(m['gd']),
+        callTone: _d(m['tn']),
+        credibility: _d(m['cr']),
+        daysSinceCall: _d(m['lc']),
         isBank: m['bank'] as bool? ?? false,
       );
 }
@@ -746,7 +767,7 @@ class MetricDef {
   final String short;
   final double? Function(StockMetrics) get;
 
-  /// '%', 'x', '₹', 'Cr'
+  /// '%', 'x', '₹', 'Cr', 'dir' (raised/maintained/cut), 'tone', 'days'
   final String unit;
 
   /// For "best" highlighting in Compare: true if higher is better.
@@ -897,6 +918,63 @@ final List<MetricDef> metricDefs = [
     (m) => m.dividendYield,
     '%',
     help: 'Dividends per share paid in the last 12 months ÷ last close price.',
+  ),
+  MetricDef(
+    'gr',
+    'Guided revenue growth',
+    'Guided rev gr.',
+    (m) => m.guidedRevGrowth,
+    '%',
+    help: 'Revenue growth management guided for in the latest concall.',
+  ),
+  MetricDef(
+    'gp',
+    'Guided profit growth',
+    'Guided profit gr.',
+    (m) => m.guidedPatGrowth,
+    '%',
+    help: 'Profit growth management guided for in the latest concall.',
+  ),
+  MetricDef(
+    'gm',
+    'Guided EBITDA margin',
+    'Guided margin',
+    (m) => m.guidedMargin,
+    '%',
+    help: 'EBITDA margin management guided for in the latest concall.',
+  ),
+  MetricDef(
+    'gd',
+    'Guidance change',
+    'Guidance',
+    (m) => m.guidanceDir,
+    'dir',
+    help: 'Did management raise, maintain or cut guidance vs the previous call?',
+  ),
+  MetricDef(
+    'tn',
+    'Concall tone',
+    'Tone',
+    (m) => m.callTone,
+    'tone',
+    help: 'Management tone in the latest concall: positive, neutral or cautious.',
+  ),
+  MetricDef(
+    'cr',
+    'Guidance hit rate',
+    'Hit rate',
+    (m) => m.credibility,
+    '%',
+    help: 'Share of past guidance targets the company actually met.',
+  ),
+  MetricDef(
+    'lc',
+    'Days since last concall',
+    'Last call',
+    (m) => m.daysSinceCall,
+    'days',
+    higherIsBetter: false,
+    help: 'How many days ago the latest earnings or analyst call happened.',
   ),
   MetricDef(
     'eps',

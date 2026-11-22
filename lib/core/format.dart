@@ -29,6 +29,9 @@ String metricValue(double? v, String unit) {
     '₹' =>
       '₹${v >= 1000 ? NumberFormat.decimalPattern('en_IN').format(v.round()) : v.toStringAsFixed(2)}',
     'Cr' => crore(v),
+    'dir' => v > 0 ? 'Raised' : (v < 0 ? 'Cut' : 'Maintained'),
+    'tone' => v > 0 ? 'Positive' : (v < 0 ? 'Cautious' : 'Neutral'),
+    'days' => '${v.round()}d ago',
     _ => v.toStringAsFixed(2),
   };
 }

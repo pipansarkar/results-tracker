@@ -402,3 +402,26 @@ def test_saved_screen_alerts(tmp_path):
     pipe._saved_screens([{"s": "A", "roe": 25}, {"s": "B", "roe": 22}, {"s": "C"}])
     assert store.get("screens/s1")["members"] == ["A", "B"]
     assert notifier.sent and notifier.sent[0][0] == "screen_s1"
+
+
+def test_call_info():
+    import guidance as gd
+    calls = [
+        {"id": "Q1FY27", "kind": "earnings", "date": "2026-08-01", "tone": "neutral", "guidanceDiff": []},
+        {"id": "Q2FY27", "kind": "earnings", "date": "2026-11-05", "tone": "positive", "callType": "earnings_call",
+         "guidanceDiff": [{"direction": "reiterated"}, {"direction": "raised"}]},
+        {"id": "P", "kind": "presentation", "date": "2026-11-20", "tone": "cautious"},
+    ]
+    items = [
+        {"callId": "Q2FY27", "metric": "revenue_growth_yoy", "low": 18, "high": 20, "status": "pending"},
+        {"callId": "Q2FY27", "metric": "ebitda_margin", "low": 22, "status": "pending"},
+        {"callId": "Q1FY27", "metric": "revenue_growth_yoy", "low": 15, "status": "met"},
+        {"callId": "Q0", "metric": "pat_growth_yoy", "low": 30, "status": "missed"},
+        {"callId": "Q0", "metric": "revenue", "low": 1, "status": "met"},
+    ]
+    info = gd.call_info(calls, items)
+    assert info["date"] == "2026-11-05" and info["tone"] == 1 and info["gDir"] == 1
+    assert info["gRev"] == 19 and info["gMgn"] == 22 and "gPat" not in info
+    assert info["cred"] == 67
+    cut = gd.call_info([{**calls[1], "guidanceDiff": [{"direction": "raised"}, {"direction": "cut"}]}], [])
+    assert cut["gDir"] == -1 and "cred" not in cut
