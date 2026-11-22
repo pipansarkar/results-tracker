@@ -41,7 +41,8 @@ def _r(v: Optional[float], nd: int = 2) -> Optional[float]:
     return None if v is None else round(v, nd)
 
 
-def compute(quarters: List[Dict], price: Optional[float]) -> Dict:
+def compute(quarters: List[Dict], price: Optional[float],
+            dividends: Optional[List[Dict]] = None, today: Optional[date] = None) -> Dict:
     """quarters: newest first, as stored in companies/{symbol}."""
     if not quarters:
         return {}
@@ -92,6 +93,12 @@ def compute(quarters: List[Dict], price: Optional[float]) -> Dict:
         m["bv"] = _r(equity / shares if equity else None)
         if not bank and ebitda and ebitda > 0:
             m["ev"] = _r((mcap + (debt or 0) - (cash or 0)) / ebitda, 1)
+    if price and dividends:
+        cutoff = ((today or date.today()) - timedelta(days=365)).isoformat()
+        dps = sum(d.get("amount") or 0 for d in dividends if (d.get("exDate") or "") >= cutoff)
+        if dps > 0:
+            m["dps"] = _r(dps)
+            m["dy"] = _r(dps / price * 100)
     return {k: v for k, v in m.items() if v is not None}
 
 

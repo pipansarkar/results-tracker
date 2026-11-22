@@ -370,3 +370,35 @@ def test_transcript_index_includes_analyst_calls(tmp_path):
         ("Q2FY27-1223", "analyst"), ("Q2FY27-1028", "analyst"),
         ("Q2FY27", "earnings"), ("Q1FY27", "earnings")]
     assert pipe.state["trPending"]["X"] == {"n": 4, "latest": True}
+
+
+def test_story_badges():
+    import run
+    qs = [{"period": f"Q{(i % 4) + 1}FY{27 - i // 4}", "revenue": 100 - i * 5, "ebitda": (100 - i * 5) * (0.25 if i == 0 else 0.2),
+           "pat": 10 - i} for i in range(8)]
+    qs[0]["period"], qs[4]["period"] = "Q2FY27", "Q2FY26"
+    b = run.Pipeline.story(qs)
+    assert "Record revenue" in b and "Record profit" in b
+    assert any(x.startswith("Margin up") for x in b) or len(b) == 3
+
+
+def test_dividend_yield():
+    import metrics
+    from datetime import date as d
+    qs = [{"period": "Q2FY27", "endDate": "2026-09-30", "revenue": 10, "pat": 1, "eps": 1, "shares": 1}]
+    m = metrics.compute(qs, 100.0, [{"exDate": "2026-06-01", "amount": 3}, {"exDate": "2024-06-01", "amount": 9}], d(2026, 11, 22))
+    assert m["dps"] == 3 and m["dy"] == 3.0
+
+
+def test_saved_screen_alerts(tmp_path):
+    import run
+    store = LocalStore(str(tmp_path))
+    uni = {s: {"symbol": s, "name": s, "sector": "IT"} for s in ("A", "B", "C")}
+    notifier = Notifier(dry_run=True)
+    pipe = run.Pipeline(store, None, notifier, uni, 0)
+    store.set("screens/s1", {"name": "High ROE", "filters": {"roe": [20, None]}})
+    pipe._saved_screens([{"s": "A", "roe": 25}, {"s": "B", "roe": 10}])
+    assert store.get("screens/s1")["members"] == ["A"] and notifier.sent == []   # first run: no push
+    pipe._saved_screens([{"s": "A", "roe": 25}, {"s": "B", "roe": 22}, {"s": "C"}])
+    assert store.get("screens/s1")["members"] == ["A", "B"]
+    assert notifier.sent and notifier.sent[0][0] == "screen_s1"

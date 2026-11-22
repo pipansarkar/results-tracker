@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import announcements as ann  # noqa: E402
 import deals as dl  # noqa: E402
+import extract  # noqa: E402
+import ipo  # noqa: E402
 import ownership  # noqa: E402
 import redflags  # noqa: E402
 import guidance as gd  # noqa: E402
@@ -64,7 +67,19 @@ HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
 # many past quarters of earnings calls to keep per company.
 TRANSCRIPT_DAYS = int(os.environ.get("TRANSCRIPT_DAYS", "400"))   # ~last 4 quarters
 MAX_CALLS = int(os.environ.get("MAX_CALLS", "8"))                   # per company
+MAX_DOCS = 2          # latest investor presentations / press releases per company
+SUMMARY_VERSION = 3   # bump to regenerate all summaries in a new format
+ENRICH_VERSION = 3    # bump to re-run per-company enrichment (calls, docs, dividends)
 SUMMARY_MINUTES = float(os.environ.get("SUMMARY_MINUTES", "12"))
+
+
+def _doc_kind(desc: str, text: str) -> Optional[str]:
+    blob = f"{desc} {text}".lower()
+    if "investor presentation" in blob:
+        return "presentation"
+    if desc.strip().lower() == "press release" or "press release" in (desc or "").lower():
+        return "press_release"
+    return None
 
 
 def _pkey(label: str):
@@ -124,6 +139,7 @@ class Pipeline:
         self._news: Dict[str, List[Dict]] = {}
         # Transcripts found this run, per symbol (merged into transcripts/{sym}).
         self._new_transcripts: Dict[str, List[Dict]] = {}
+        self._orders: List[Dict] = []
         # Deals, ownership changes and red flags per symbol (activity/{sym}).
         self._activity: Dict[str, List[Dict]] = {}
         self._market_deals: List[Dict] = []
@@ -230,7 +246,7 @@ class Pipeline:
                     self.store.set(f"companies/{s}", {"holding": hist}, merge=True)
             except Exception as e:
                 log.warning("shareholding for %s failed: %s", s, e)
-            self.index_transcripts(s)
+            self.enrich(s)
             self.backfilled.add(s)
             if len(self.backfilled) % 25 == 0:
                 self.save_state()  # long backfills never lose progress
@@ -345,6 +361,34 @@ class Pipeline:
                 body += f" ({pat_yoy:+.1f}%)"
         self.notify.send(sym, f"{info['name']} {latest['period']} results out", body, {"type": "results"})
 
+    @staticmethod
+    def story(quarters: List[Dict]) -> List[str]:
+        """Plain-English badges for the latest quarter (newest first list)."""
+        if not quarters:
+            return []
+        q, hist = quarters[0], quarters[:12]
+        out = []
+        for key, label in (("revenue", "revenue"), ("pat", "profit")):
+            vals = [x.get(key) for x in hist if x.get(key) is not None]
+            if q.get(key) is not None and len(vals) >= 6:
+                if q[key] >= max(vals):
+                    out.append(f"Record {label}")
+                elif q[key] <= min(vals):
+                    out.append(f"Lowest {label} in {len(vals)} quarters")
+        def margin(x):
+            return x["ebitda"] / x["revenue"] * 100 if x.get("ebitda") is not None and x.get("revenue") else None
+        ago = next((x for x in quarters[1:] if x["period"][:2] == q["period"][:2]), None)
+        if ago and margin(q) is not None and margin(ago) is not None:
+            d = (margin(q) - margin(ago)) * 100
+            if abs(d) >= 100:
+                out.append(f"Margin {'up' if d > 0 else 'down'} {abs(d):.0f} bps")
+        if q.get("pat") is not None and ago and ago.get("pat") is not None:
+            if q["pat"] > 0 >= ago["pat"]:
+                out.append("Back to profit")
+            elif q["pat"] < 0 <= ago["pat"]:
+                out.append("Swung to loss")
+        return out[:3]
+
     def _add_to_feed(self, sym, name, q, rev_yoy, pat_yoy, filed: datetime) -> None:
         today_id = self.today.isoformat()
         feed = self.store.get("feed/today") or {}
@@ -356,6 +400,7 @@ class Pipeline:
             "revenue": q.get("revenue"), "pat": q.get("pat"),
             "revenueYoY": rev_yoy, "patYoY": pat_yoy,
             "announcedAt": filed.isoformat(),
+            "story": self.story((self.store.get(f"companies/{sym}") or {}).get("quarters", [])),
         })
         self.store.set("feed/today", feed)
 
@@ -423,6 +468,179 @@ class Pipeline:
                 self.store.set("feed/today", feed)
         self.state["reactionsPending"] = keep
 
+    # -------------------------------------------------- orders / ratings / mgmt
+
+    _MGMT = re.compile(r"change in (director|key managerial|management|auditor|senior management|kmp)"
+                       r"|appointment of|re-?appointment|resignation of|cessation", re.I)
+    _ROLE = re.compile(r"director|chief|ceo|cfo|coo|cto|managing|chairman|company secretary|"
+                       r"auditor|key managerial|president|head", re.I)
+
+    def _pdf(self, url: str, limit: int = 8000) -> str:
+        if not url.lower().endswith(".pdf"):
+            return ""
+        try:
+            from summarize import pdf_text
+            return pdf_text(self.nse.download(url))[:limit]
+        except Exception:
+            return ""
+
+    def _ttm_revenue(self, sym: str) -> Optional[float]:
+        doc = self.store.get(f"companies/{sym}") or {}
+        qs = doc.get("quarters", [])[:4]
+        if len(qs) == 4 and all(q.get("revenue") for q in qs):
+            return sum(q["revenue"] for q in qs)
+        return None
+
+    def _special_filing(self, sym: str, a: Dict, desc: str, text: str, url: str, filed: date) -> None:
+        """Order wins, credit ratings and management changes."""
+        key = "sp:" + (url or str(a.get("seq_id", "")) or _hash([sym, desc, text]))
+        if key in self.processed:
+            return
+        low = f"{desc} {text}".lower()
+        name = self.universe[sym]["name"]
+        recent = filed >= self.today - timedelta(days=2)
+        if "bagging" in low or "receiving of order" in low or "letter of award" in low or \
+                re.search(r"\b(order|contract)s?\b.{0,40}\b(received|bagged|secured|won|awarded)", low):
+            self.processed.add(key)
+            info = extract.order(text + "\n" + self._pdf(url), name)
+            rev = self._ttm_revenue(sym)
+            pct = round(info["valueCr"] / rev * 100, 2) if info.get("valueCr") and rev else None
+            item = {"kind": "order", "date": filed.isoformat(), "valueCr": info.get("valueCr"),
+                    "pctRevenue": pct, "who": info.get("client"), "text": info.get("description"),
+                    "detail": info.get("executionPeriod"), "url": url or None}
+            self.add_activity(sym, item)
+            self._orders.append({"symbol": sym, "name": name, **{k: v for k, v in item.items() if v is not None}})
+            if recent and ((pct or 0) >= 2 or (info.get("valueCr") or 0) >= 250):
+                v = f"₹{info['valueCr']:,.0f} Cr" if info.get("valueCr") else "New order"
+                self.notify.send(sym, f"{name}: order win {v}",
+                                 (f"{pct:.1f}% of annual revenue · " if pct else "") + (info.get("description") or ""),
+                                 {"type": "order"})
+            return
+        if "credit rating" in low or re.search(r"\b(crisil|icra|care ratings|india ratings|acuite)\b", low):
+            self.processed.add(key)
+            info = extract.rating(text + "\n" + self._pdf(url), name)
+            item = {"kind": "rating", "date": filed.isoformat(), "who": info.get("agency"),
+                    "text": info.get("rating"), "detail": info.get("instrument"),
+                    "side": info.get("action"), "outlook": info.get("outlook"),
+                    "previous": info.get("previousRating"), "url": url or None}
+            self.add_activity(sym, item)
+            if recent and info.get("action") in ("upgrade", "downgrade"):
+                self.notify.send(sym, f"{name}: credit rating {info['action']}",
+                                 f"{info.get('agency') or ''} {info.get('rating') or ''} "
+                                 f"{('(' + info['outlook'] + ')') if info.get('outlook') else ''}".strip(),
+                                 {"type": "rating"})
+            return
+        if self._MGMT.search(low) and self._ROLE.search(low):
+            self.processed.add(key)
+            detail = " ".join(text.split())[:300] or desc
+            pdf = self._pdf(url, 3000) if len(detail) < 120 else ""
+            if pdf:
+                detail = " ".join(pdf.split())[:400]
+            change = "exit" if re.search(r"resign|cessation|step(s|ped)? down|retire", low) else "appointment"
+            self.add_activity(sym, {"kind": "mgmt", "date": filed.isoformat(), "side": change,
+                                    "text": desc.strip() or "Management change", "detail": detail,
+                                    "url": url or None})
+
+    def flush_orders(self) -> None:
+        if not self._orders:
+            return
+        doc = self.store.get("orders/latest") or {}
+        cutoff = (self.today - timedelta(days=30)).isoformat()
+        seen = {(i["symbol"], i.get("date"), i.get("valueCr"), i.get("text")) for i in doc.get("items", [])}
+        items = [i for i in doc.get("items", []) if (i.get("date") or "") >= cutoff]
+        items += [i for i in self._orders if (i["symbol"], i.get("date"), i.get("valueCr"), i.get("text")) not in seen]
+        items.sort(key=lambda i: (i.get("date") or "", i.get("valueCr") or 0), reverse=True)
+        self.store.set("orders/latest", {"items": items[:400]})
+        log.info("orders: %d new", len(self._orders))
+        self._orders = []
+
+    # ---------------------------------------------------------- dividends
+
+    _DIV = re.compile(r"dividend[^0-9]*?(?:rs\.?|re\.?|₹|inr)\s*([\d.]+)", re.I)
+
+    def dividends(self, sym: str) -> None:
+        """3 years of dividends and corporate actions -> companies/{sym}."""
+        from nse import nse_date
+        try:
+            rows = self.nse.get_json("/api/corporates-corporateActions", {
+                "index": "equities", "symbol": sym,
+                "from_date": nse_date(self.today - timedelta(days=3 * 365 + 30)),
+                "to_date": nse_date(self.today + timedelta(days=60))})
+        except Exception as e:
+            log.warning("corporate actions for %s failed: %s", sym, e)
+            return
+        rows = rows if isinstance(rows, list) else rows.get("data", [])
+        divs, actions = [], []
+        for r in rows:
+            ex = parse_nse_datetime(r.get("exDate"))
+            subj = (r.get("subject") or "").strip()
+            if not ex or not subj:
+                continue
+            actions.append({"exDate": ex.date().isoformat(), "subject": subj})
+            for m in self._DIV.finditer(subj):
+                try:
+                    divs.append({"exDate": ex.date().isoformat(), "amount": float(m.group(1)),
+                                 "kind": "interim" if "interim" in subj.lower() else
+                                 "special" if "special" in subj.lower() else "final"})
+                except ValueError:
+                    pass
+        divs.sort(key=lambda d: d["exDate"], reverse=True)
+        actions.sort(key=lambda d: d["exDate"], reverse=True)
+        self.store.set(f"companies/{sym}", {"dividends": divs, "corpActions": actions[:30]}, merge=True)
+
+    def enrich(self, sym: str) -> None:
+        """Per-company extras: calls & documents index, dividends."""
+        self.index_transcripts(sym)
+        self.dividends(sym)
+        done = self.state.setdefault("enriched", {})
+        done[sym] = ENRICH_VERSION
+
+    def enrich_remaining(self, minutes: float) -> None:
+        import time as _t
+        deadline = _t.time() + minutes * 60
+        done = self.state.setdefault("enriched", {})
+        todo = sorted((s for s in self.universe if done.get(s) != ENRICH_VERSION),
+                      key=lambda s: -float(self.universe[s].get("mcap") or 0))
+        n = 0
+        for s in todo:
+            if _t.time() > deadline:
+                break
+            self.enrich(s)
+            n += 1
+        if n:
+            log.info("enriched %d companies (%d/%d)", n,
+                     sum(1 for s in self.universe if done.get(s) == ENRICH_VERSION), len(self.universe))
+
+    # ----------------------------------------------------------------- IPOs
+
+    def process_ipos(self) -> None:
+        def price_on(sym: str, d: date) -> Optional[float]:
+            for i in range(0, 5):
+                p = self._prices(d - timedelta(days=i))
+                if p and sym in p:
+                    return p[sym]
+            return None
+        try:
+            data = ipo.fetch(self.nse, self.today, price_on)
+        except Exception as e:
+            log.warning("IPOs failed: %s", e)
+            return
+        data["updatedAt"] = now_ist().isoformat()
+        self.store.set("meta/ipos", data)
+        log.info("ipos: %d open, %d upcoming, %d recently listed",
+                 len(data["open"]), len(data["upcoming"]), len(data["listed"]))
+
+    # ------------------------------------------------------- weekly report
+
+    def process_weekly(self) -> None:
+        now = now_ist()
+        if now.weekday() != 6 or now.hour < 10 or self.state.get("weeklyDate") == self.today.isoformat():
+            return
+        self.state["weeklyDate"] = self.today.isoformat()
+        self.notify.send_topic("digest", "Your weekly report is ready",
+                               "Results, concalls, orders, deals and red flags for your watchlists this week.",
+                               {"type": "weekly"})
+
     # ------------------------------------------------------------- activity
 
     def add_activity(self, sym: str, item: Dict) -> None:
@@ -430,7 +648,8 @@ class Pipeline:
 
     def flush_activity(self, keep: int = 60) -> None:
         def key(i):
-            return (i.get("kind"), i.get("date"), i.get("who"), i.get("side"), i.get("qty"), i.get("text"))
+            return (i.get("kind"), i.get("date"), i.get("who"), i.get("side"), i.get("qty"),
+                    i.get("text"), i.get("valueCr"))
         n = 0
         for sym, items in self._activity.items():
             doc = self.store.get(f"activity/{sym}") or {}
@@ -694,8 +913,12 @@ class Pipeline:
                         if flag["severity"] == "high":
                             self.notify.send(sym, f"⚠ {self.universe[sym]['name']}: {flag['label']}",
                                              " ".join(text.split())[:150] or desc, {"type": "flag"})
+            self._special_filing(sym, a, desc, text, url, filed)
             if ann.is_transcript(desc, text) and url.lower().endswith(".pdf"):
                 self._new_transcripts.setdefault(sym, []).append({"url": url, "filed": filed.isoformat()})
+            elif url.lower().endswith(".pdf") and (dk := _doc_kind(desc, text)):
+                self._new_transcripts.setdefault(sym, []).append(
+                    {"url": url, "filed": filed.isoformat(), "doc": dk})
             elif ann.is_concall_intimation(desc, text):
                 key = "int:" + (url or str(a.get("seq_id", "")))
                 if key in self.processed:
@@ -757,7 +980,7 @@ class Pipeline:
         rows = []
         for sym, info in sorted(self.universe.items()):
             doc = companies.get(sym) or {}
-            m = metrics.compute(doc.get("quarters", []), prices.get(sym))
+            m = metrics.compute(doc.get("quarters", []), prices.get(sym), doc.get("dividends"), self.today)
             if not m and sym not in prices:
                 continue
             if sym in prices and "p" not in m:
@@ -777,6 +1000,50 @@ class Pipeline:
             self._season(rows, companies)
         except Exception as e:
             log.warning("season stats failed: %s", e)
+        try:
+            self._saved_screens(rows)
+        except Exception as e:
+            log.warning("saved screens failed: %s", e)
+
+    def _saved_screens(self, rows: List[Dict]) -> None:
+        """Users' saved screens (screens/{id}): push 'screen_{id}' when a
+        stock newly qualifies. First evaluation only records members."""
+        screens = self.store.list("screens")
+        by_sym = {r["s"]: r for r in rows}
+        pushes = 0
+        for sid, sc in screens[:2000]:
+            filters = sc.get("filters") or {}
+            sector, n500 = sc.get("sector"), sc.get("n500")
+
+            def ok(sym, r):
+                info = self.universe.get(sym, {})
+                if sector and info.get("sector") != sector:
+                    return False
+                if n500 and not info.get("n500"):
+                    return False
+                for k, rng in filters.items():
+                    v = r.get(k)
+                    if v is None:
+                        return False
+                    lo, hi = (rng + [None, None])[:2] if isinstance(rng, list) else (None, None)
+                    if lo is not None and v < lo or hi is not None and v > hi:
+                        return False
+                return True
+
+            members = sorted(s for s, r in by_sym.items() if ok(s, r))
+            before = sc.get("members")
+            if before is not None:
+                new = [s for s in members if s not in set(before)]
+                if new:
+                    names = ", ".join(self.universe.get(s, {}).get("name", s) for s in new[:3])
+                    more = f" and {len(new) - 3} more" if len(new) > 3 else ""
+                    self.notify.send_topic(f"screen_{sid}", f"New in your screen '{sc.get('name', '')}'",
+                                           names + more, {"type": "screen", "screen": sid})
+                    pushes += 1
+            self.store.set(f"screens/{sid}", {"members": members[:500], "count": len(members),
+                                              "checkedAt": now_ist().isoformat()}, merge=True)
+        if screens:
+            log.info("saved screens: %d checked, %d alerts", len(screens), pushes)
 
     def _season(self, rows: List[Dict], companies: Dict[str, Dict]) -> None:
         """Results-season scoreboard -> meta/season."""
@@ -851,6 +1118,16 @@ class Pipeline:
         path = f"transcripts/{sym}"
         doc = self.store.get(path) or {}
         by_url: Dict[str, Dict] = {i["url"]: i for i in doc.get("items", [])}
+        # Investor presentations / press releases: keep the latest few.
+        for f in [f for f in found if f.get("doc")]:
+            if f["url"] in by_url:
+                continue
+            filed = date.fromisoformat(f["filed"][:10])
+            period = quarter_label(ann.latest_quarter_end_before(filed))
+            tag = "pres" if f["doc"] == "presentation" else "pr"
+            by_url[f["url"]] = {"id": f"{period}-{tag}-{filed.strftime('%m%d')}", "period": period,
+                                "kind": f["doc"], "url": f["url"], "filed": f["filed"][:10], "done": False}
+        found = [f for f in found if not f.get("doc")]
         earnings_periods = {i["period"] for i in by_url.values() if i.get("kind") == "earnings"}
         cutoff = (self.today - timedelta(days=TRANSCRIPT_DAYS)).isoformat()
         for f in sorted(found, key=lambda x: x["filed"]):
@@ -865,7 +1142,13 @@ class Pipeline:
             cid = period if kind == "earnings" else f"{period}-{filed.strftime('%m%d')}"
             by_url[f["url"]] = {"id": cid, "period": period, "kind": kind, "url": f["url"],
                                 "filed": f["filed"][:10], "done": False}
-        items = sorted(by_url.values(), key=lambda i: i["filed"], reverse=True)[:MAX_CALLS]
+        calls = sorted((i for i in by_url.values() if i.get("kind") in ("earnings", "analyst")),
+                       key=lambda i: i["filed"], reverse=True)[:MAX_CALLS]
+        docs = []
+        for kind in ("presentation", "press_release"):
+            docs += sorted((i for i in by_url.values() if i.get("kind") == kind),
+                           key=lambda i: i["filed"], reverse=True)[:MAX_DOCS]
+        items = sorted(calls + docs, key=lambda i: i["filed"], reverse=True)
         if items != doc.get("items"):
             self.store.set(path, {"symbol": sym, "items": items})
         self._set_pending(sym, items)
@@ -888,10 +1171,13 @@ class Pipeline:
         found = []
         for a in items:
             desc, text, url = a.get("desc") or "", a.get("attchmntText") or "", a.get("attchmntFile") or ""
-            if ann.is_transcript(desc, text) and url.lower().endswith(".pdf"):
-                filed = parse_nse_datetime(a.get("an_dt") or a.get("sort_date"))
-                if filed:
-                    found.append({"url": url, "filed": filed.date().isoformat()})
+            filed = parse_nse_datetime(a.get("an_dt") or a.get("sort_date"))
+            if not filed or not url.lower().endswith(".pdf"):
+                continue
+            if ann.is_transcript(desc, text):
+                found.append({"url": url, "filed": filed.date().isoformat()})
+            elif (dk := _doc_kind(desc, text)):
+                found.append({"url": url, "filed": filed.date().isoformat(), "doc": dk})
         self._merge_transcripts(sym, found)
         self.state.setdefault("trIndexed", [])
         if sym not in self.state["trIndexed"]:
@@ -956,21 +1242,28 @@ class Pipeline:
             filed = date.fromisoformat(item["filed"])
             path = f"companies/{sym}/concalls/{cid}"
             existing = self.store.get(path)
-            if existing and existing.get("v", 1) >= 2:
+            if existing and existing.get("v", 1) >= SUMMARY_VERSION:
                 item["done"] = True
                 self.store.set(f"transcripts/{sym}", tdoc)
                 self._set_pending(sym, items)
                 continue
             company = self.store.get(f"companies/{sym}") or {}
-            all_calls = [c for _, c in self.store.list(f"companies/{sym}/concalls") if c.get("v", 1) >= 2]
+            all_docs = [c for _, c in self.store.list(f"companies/{sym}/concalls") if c.get("v", 1) >= 2]
+            is_doc = kind in ("presentation", "press_release")
+            # Calls are compared with calls; documents with documents of the same kind.
+            all_calls = [c for c in all_docs if (c.get("kind") == kind) if is_doc] if is_doc else \
+                [c for c in all_docs if c.get("kind", "earnings") in ("earnings", "analyst")]
             earlier = [c for c in all_calls if (c.get("date") or "") < item["filed"]]
             prev = max(earlier, key=lambda c: c.get("date") or "") if earlier else None
             try:
                 text = pdf_text(self.nse.download(url))
                 if len(text) < 2000:
                     raise ValueError("transcript text too short (scanned PDF?)")
-                label = period if kind == "earnings" else f"{period} (analyst / investor call)"
+                label = {"earnings": period, "analyst": f"{period} (analyst / investor call)",
+                         "presentation": f"{period} investor presentation",
+                         "press_release": f"{period} press release"}.get(kind, period)
                 result = summarise(text, name=self.universe[sym]["name"], symbol=sym, period=label,
+                                   doc="call" if not is_doc else kind,
                                    previous=prev, lite=filed < self.today - timedelta(days=3))
             except QuotaExceeded:
                 log.warning("Gemini quota reached; %d companies still have pending transcripts", len(pend))
@@ -993,6 +1286,8 @@ class Pipeline:
                         call_date = cd
             except ValueError:
                 pass
+            if is_doc:
+                result["guidanceItems"] = []
             for g in result.get("guidanceItems", []):
                 g.update(madeIn=period, callId=cid, target=gd.format_target(g))
             guidance_all = self.store.list(f"companies/{sym}/guidance")
@@ -1001,8 +1296,10 @@ class Pipeline:
                              if prev and (x.get("callId") or x.get("madeIn")) == prev_id]
             gdiff = gd.diff(result.get("guidanceItems", []), prev_guidance) if prev else []
             doc = {
-                "v": 2, "id": cid, "kind": kind, "period": period,
-                "callType": result.get("callType") or ("earnings_call" if kind == "earnings" else "analyst_meet"),
+                "v": SUMMARY_VERSION, "id": cid, "kind": kind, "period": period,
+                "callType": ("investor_presentation" if kind == "presentation" else
+                             "press_release" if kind == "press_release" else
+                             result.get("callType") or ("earnings_call" if kind == "earnings" else "analyst_meet")),
                 "date": call_date.isoformat(), "filed": item["filed"], "transcriptUrl": url,
                 "tone": result.get("tone", "neutral"), "toneChange": result.get("toneChange") or None,
                 "summary": result.get("summary", {}), "model": _model_name(),
@@ -1127,6 +1424,7 @@ def main() -> None:
     args = p.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("pypdf").setLevel(logging.ERROR)  # font-encoding noise
     store: Store = LocalStore(args.out) if args.dry_run else FirestoreStore()
     nse = NseClient()
     universe = load_universe(store)
@@ -1157,7 +1455,7 @@ def main() -> None:
             # and refreshes ratios as big batches land.
             before = len(pipe.backfilled)
             pipe.backfill()
-            pipe.index_remaining_transcripts(minutes=6)
+            pipe.enrich_remaining(minutes=10)
             if len(pipe.backfilled) // 300 > before // 300:
                 pipe.state["screenerPriceDate"] = None  # force a ratios refresh
         pipe.process_board_meetings()
@@ -1167,6 +1465,9 @@ def main() -> None:
         pipe.flush_calendar()
         pipe.flush_news()
         pipe.flush_activity()
+        pipe.flush_orders()
+        if not symbols:
+            pipe.process_ipos()
         pipe.process_pending_reactions()
         if not symbols:
             try:
@@ -1178,6 +1479,7 @@ def main() -> None:
             pipe.flush_calendar()
         if not symbols:
             pipe.process_digest()
+            pipe.process_weekly()
             now = now_ist()
             if (now.hour, now.minute) >= (7, 50):
                 pipe.morning_alerts()  # once a day: concalls / results today

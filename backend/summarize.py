@@ -61,6 +61,7 @@ def resolved_model(client) -> str:
 
 
 def pdf_text(content: bytes) -> str:
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(content))
     return "\n".join((p.extract_text() or "") for p in reader.pages)
@@ -94,8 +95,30 @@ _SUMMARY = {
         "risks": _STR_LIST,
         "redFlags": _STR_LIST,
         "quotes": _STR_LIST,
+        "orderBook": {
+            "type": "OBJECT",
+            "nullable": True,
+            "properties": {
+                "valueCr": {"type": "NUMBER", "nullable": True},
+                "asOf": {"type": "STRING", "nullable": True},
+                "bookToBill": {"type": "NUMBER", "nullable": True},
+                "inflowsCr": {"type": "NUMBER", "nullable": True},
+                "executionYears": {"type": "NUMBER", "nullable": True},
+                "commentary": _STR_LIST,
+            },
+        },
+        "promises": {"type": "ARRAY", "items": {
+            "type": "OBJECT",
+            "properties": {
+                "item": {"type": "STRING"},
+                "target": {"type": "STRING", "nullable": True},
+                "status": {"type": "STRING", "enum": ["new", "on_track", "delayed", "completed", "dropped"]},
+                "note": {"type": "STRING", "nullable": True},
+            },
+            "required": ["item", "status"],
+        }},
     },
-    "required": ["overview", "highlights", "financials", "outlook", "guidance", "qa", "risks", "redFlags"],
+    "required": ["overview", "highlights", "financials", "outlook", "guidance", "risks", "redFlags"],
 }
 
 _CHANGES = {
@@ -139,7 +162,7 @@ SCHEMA = {
 }
 
 PROMPT = """You are a senior equity research analyst writing a DETAILED summary of an
-Indian listed company's earnings conference call for serious retail investors.
+Indian listed company's {doc} for serious retail investors.
 
 Company: {name} ({symbol}). Quarter: {period}.
 {previous}
@@ -168,6 +191,14 @@ summary:
   demand, repeated excuses, evasive answers, guidance cuts, key exits). Empty
   list if none.
 - quotes: 3-5 short notable direct quotes from management.
+- orderBook: if the company discusses an order book / backlog / pipeline: valueCr
+  (₹ crore), asOf, bookToBill (order book ÷ trailing revenue, if given or
+  computable), inflowsCr (order inflows in the period), executionYears, and
+  commentary (mix, large orders, execution). null if not discussed.
+- promises: concrete commitments with timelines (capacity, plants, launches,
+  capex, debt reduction, deliveries). status vs the PREVIOUS CALL if given:
+  new, on_track, delayed (with note on the new timeline), completed, dropped
+  (promised before, not mentioned or abandoned now).
 tone: overall management tone. toneChange: one line vs the previous call if
 given, else "".
 changes: compare with the PREVIOUS CALL section if given (otherwise empty
@@ -207,6 +238,10 @@ def _brief(s: Dict[str, Any]) -> str:
     """Compact text version of a stored English summary (for comparisons)."""
     en = (s.get("summary") or {}).get("en") or {}
     parts = [f"Tone: {s.get('tone')}", f"Overview: {en.get('overview', '')}"]
+    if en.get("orderBook"):
+        parts.append(f"Order book: {en['orderBook']}")
+    if en.get("promises"):
+        parts.append("Promises: " + " | ".join(f"{p.get('item')} ({p.get('target')})" for p in en["promises"][:12]))
     for k in ("highlights", "financials", "outlook", "margins", "capex", "guidance", "risks"):
         if en.get(k):
             parts.append(f"{k}: " + " | ".join(en[k][:12]))
@@ -215,9 +250,17 @@ def _brief(s: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+DOC_NAMES = {
+    "call": "earnings conference call / analyst or investor call transcript",
+    "presentation": "investor presentation (slides; no Q&A, leave qa empty)",
+    "press_release": "results press release (no Q&A, leave qa empty)",
+}
+
+
 def summarise(text: str, *, name: str, symbol: str, period: str,
               previous: Optional[Dict[str, Any]] = None,
-              api_key: Optional[str] = None, lite: bool = False) -> Dict[str, Any]:
+              api_key: Optional[str] = None, lite: bool = False,
+              doc: str = "call") -> Dict[str, Any]:
     """lite=True uses Flash-Lite (faster, larger free quota) - used for the
     backlog of older calls; fresh calls use the full Flash model."""
     from google import genai
@@ -232,7 +275,7 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
         prev = f"PREVIOUS CALL ({previous.get('period')}):\n{_brief(previous)}\n"
 
     client = genai.Client(api_key=key)
-    prompt = PROMPT.format(name=name, symbol=symbol, period=period,
+    prompt = PROMPT.format(doc=DOC_NAMES.get(doc, DOC_NAMES["call"]), name=name, symbol=symbol, period=period,
                            previous=prev, transcript=text[:MAX_CHARS])
     global _lite
     if lite and not MODEL:
