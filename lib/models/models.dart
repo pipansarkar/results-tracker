@@ -28,6 +28,12 @@ class CompanyLite {
   );
 }
 
+class Segment {
+  final String name;
+  final double revenue;
+  const Segment(this.name, this.revenue);
+}
+
 class QuarterResult {
   /// e.g. "Q2FY27"
   final String period;
@@ -38,6 +44,24 @@ class QuarterResult {
   final double? eps;
   final bool consolidated;
 
+  // Detailed P&L (₹ crore); null when the filing doesn't report the line.
+  final double? otherIncome;
+  final double? totalIncome;
+  final double? materialCost;
+  final double? employeeCost;
+  final double? otherExpenses;
+  final double? totalExpenses;
+  final double? depreciation;
+  final double? financeCost;
+  final double? exceptional;
+  final double? pbt;
+  final double? tax;
+
+  /// Profit incl. minority interest (pat is attributable to shareholders).
+  final double? netProfit;
+  final double? dilutedEps;
+  final List<Segment> segments;
+
   const QuarterResult({
     required this.period,
     required this.endDate,
@@ -46,16 +70,32 @@ class QuarterResult {
     this.pat,
     this.eps,
     this.consolidated = true,
+    this.otherIncome,
+    this.totalIncome,
+    this.materialCost,
+    this.employeeCost,
+    this.otherExpenses,
+    this.totalExpenses,
+    this.depreciation,
+    this.financeCost,
+    this.exceptional,
+    this.pbt,
+    this.tax,
+    this.netProfit,
+    this.dilutedEps,
+    this.segments = const [],
   });
 
-  double? get ebitdaMargin =>
-      (ebitda != null && revenue != null && revenue! > 0)
-      ? ebitda! / revenue! * 100
+  double? _ofRevenue(double? v) =>
+      (v != null && revenue != null && revenue! > 0)
+      ? v / revenue! * 100
       : null;
 
-  double? get patMargin => (pat != null && revenue != null && revenue! > 0)
-      ? pat! / revenue! * 100
-      : null;
+  double? get ebitdaMargin => _ofRevenue(ebitda);
+  double? get patMargin => _ofRevenue(pat);
+  double? get pbtMargin => _ofRevenue(pbt);
+  double? get taxRate =>
+      (tax != null && pbt != null && pbt! > 0) ? tax! / pbt! * 100 : null;
 
   factory QuarterResult.fromMap(Map<String, dynamic> m) => QuarterResult(
     period: m['period'] as String,
@@ -65,6 +105,24 @@ class QuarterResult {
     pat: _d(m['pat']),
     eps: _d(m['eps']),
     consolidated: m['consolidated'] as bool? ?? true,
+    otherIncome: _d(m['otherIncome']),
+    totalIncome: _d(m['totalIncome']),
+    materialCost: _d(m['materialCost']),
+    employeeCost: _d(m['employeeCost']),
+    otherExpenses: _d(m['otherExpenses']),
+    totalExpenses: _d(m['totalExpenses']),
+    depreciation: _d(m['depreciation']),
+    financeCost: _d(m['financeCost']),
+    exceptional: _d(m['exceptional']),
+    pbt: _d(m['pbt']),
+    tax: _d(m['tax']),
+    netProfit: _d(m['netProfit']),
+    dilutedEps: _d(m['dilutedEps']),
+    segments: [
+      for (final e in (m['segments'] as List? ?? []))
+        if ((e as Map)['revenue'] != null)
+          Segment(e['name'] as String? ?? '', (e['revenue'] as num).toDouble()),
+    ],
   );
 }
 
@@ -355,5 +413,32 @@ class FeedItem {
     announcedAt: m['announcedAt'] == null
         ? null
         : DateTime.tryParse(m['announcedAt'] as String),
+  );
+}
+
+/// A company announcement filed on NSE, or a media headline.
+class NewsItem {
+  final DateTime date;
+  final String title;
+  final String? text;
+  final String? url;
+
+  /// "NSE" for exchange filings, otherwise the publisher.
+  final String source;
+
+  const NewsItem({
+    required this.date,
+    required this.title,
+    this.text,
+    this.url,
+    required this.source,
+  });
+
+  factory NewsItem.fromMap(Map<String, dynamic> m) => NewsItem(
+    date: DateTime.tryParse(m['date'] as String? ?? '') ?? DateTime(2000),
+    title: m['title'] as String? ?? '',
+    text: m['text'] as String?,
+    url: m['url'] as String?,
+    source: 'NSE',
   );
 }

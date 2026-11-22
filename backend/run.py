@@ -43,6 +43,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 HERE = Path(__file__).parent
 UNIVERSE_CSV = HERE / "companies.csv"
 STATE = "pipeline_state/main"
+SCHEMA = 2  # bump to re-parse all filings (2 = detailed P&L + segments)
 MAX_PROCESSED = 8000
 
 CAL_PAST_DAYS = 60        # calendar keeps / back-fills this many past days
@@ -80,12 +81,19 @@ class Pipeline:
         self.universe = universe
         self.max_summaries = max_summaries
         self.state = store.get(STATE) or {}
+        if self.state.get("schema") != SCHEMA:
+            # New fields: reload history for every stock once.
+            self.state["processed"] = [k for k in self.state.get("processed", []) if not k.startswith("res:")]
+            self.state["backfilled"] = []
+            self.state["schema"] = SCHEMA
         self.processed = set(self.state.get("processed", []))
         self.queue: List[Dict] = self.state.get("transcriptQueue", [])
         self.backfilled = set(self.state.get("backfilled", []))
         self.today = now_ist().date()
         # Calendar events collected during this run, keyed by week id.
         self._cal: Dict[str, List[Dict]] = {}
+        # Company announcements (news) collected during this run, by symbol.
+        self._news: Dict[str, List[Dict]] = {}
 
     # ----------------------------------------------------------------- state
 
@@ -136,6 +144,12 @@ class Pipeline:
         filings = self.nse.financial_results(self.today - timedelta(days=days), self.today)
         log.info("%d new result filings to check", len(filings))
         self._process_filings(filings, announce=True)
+        # A company that just reported should never show a single quarter:
+        # load its history right away if that hasn't happened yet.
+        fresh = sorted({f.get("symbol") for f in filings
+                        if f.get("symbol") in self.universe and f.get("symbol") not in self.backfilled})
+        if fresh:
+            self.backfill(fresh)
 
     def backfill(self, symbols: Optional[List[str]] = None, limit: int = BACKFILL_PER_RUN) -> None:
         """~3 years of quarterly history, a batch of stocks per run."""
@@ -353,7 +367,13 @@ class Pipeline:
             if sym not in self.universe:
                 continue
             desc, text, url = a.get("desc") or "", a.get("attchmntText") or "", a.get("attchmntFile") or ""
-            filed = (parse_nse_datetime(a.get("an_dt") or a.get("sort_date")) or now_ist()).date()
+            filed_dt = parse_nse_datetime(a.get("an_dt") or a.get("sort_date")) or now_ist().replace(tzinfo=None)
+            filed = filed_dt.date()
+            if desc or text:
+                self._news.setdefault(sym, []).append({
+                    "date": filed_dt.isoformat(), "title": desc.strip() or "Announcement",
+                    "text": " ".join(text.split())[:300], "url": url or None,
+                })
             if ann.is_transcript(desc, text) and url.lower().endswith(".pdf"):
                 key = "tr:" + url
                 if key not in self.processed and not any(q["url"] == url for q in self.queue):
@@ -384,6 +404,26 @@ class Pipeline:
                     "note": "Earnings call" if earnings else ann.meet_kind(body),
                     "url": url or None,
                 })
+
+    def flush_news(self, keep: int = 40) -> None:
+        """news/{symbol}: the company's latest NSE announcements (official news)."""
+        n = 0
+        for sym, items in self._news.items():
+            doc = self.store.get(f"news/{sym}") or {}
+            seen = {(i["date"], i["title"]) for i in doc.get("items", [])}
+            new = []
+            for i in items:
+                k = (i["date"], i["title"])
+                if k not in seen:
+                    seen.add(k)
+                    new.append(i)
+            if not new:
+                continue
+            merged = sorted(doc.get("items", []) + new, key=lambda i: i["date"], reverse=True)[:keep]
+            self.store.set(f"news/{sym}", {"symbol": sym, "items": merged})
+            n += 1
+        log.info("news: updated %d companies", n)
+        self._news = {}
 
     # ----------------------------------------------------------- transcripts
 
@@ -537,6 +577,7 @@ def main() -> None:
         pipe.process_board_meetings()
         pipe.process_announcements(args.days, history=not args.no_history and not symbols)
         pipe.flush_calendar()
+        pipe.flush_news()
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()

@@ -46,9 +46,26 @@ class Quarter:
     pat: Optional[float]
     eps: Optional[float]
     consolidated: bool
+    # Detailed P&L (₹ crore), filled when the filing has the line item.
+    otherIncome: Optional[float] = None
+    totalIncome: Optional[float] = None
+    materialCost: Optional[float] = None
+    employeeCost: Optional[float] = None
+    otherExpenses: Optional[float] = None
+    totalExpenses: Optional[float] = None
+    depreciation: Optional[float] = None
+    financeCost: Optional[float] = None
+    exceptional: Optional[float] = None
+    pbt: Optional[float] = None
+    tax: Optional[float] = None
+    netProfit: Optional[float] = None   # incl. minority interest
+    dilutedEps: Optional[float] = None
+    # [{name, revenue, result}] for the quarter, when segments are reported.
+    segments: Optional[List[Dict]] = None
 
     def to_dict(self) -> Dict:
-        return asdict(self)
+        return {k: v for k, v in asdict(self).items() if v is not None or k in (
+            "revenue", "ebitda", "pat", "eps")}
 
 
 def quarter_label(end: date) -> str:
@@ -102,6 +119,50 @@ def _facts(root: ET.Element) -> Dict[Tuple[str, str], float]:
         except ValueError:
             continue
     return out
+
+
+def _segments(root: ET.Element, end: date, facts: Dict[Tuple[str, str], float]) -> Optional[List[Dict]]:
+    """Segment revenue/result for the quarter ending `end`. Segment names
+    come from DescriptionOfReportableSegment facts in a context with the
+    same ReportableSegments member."""
+    member_of: Dict[str, str] = {}      # context id -> member
+    quarter_ctx: Dict[str, str] = {}    # member -> context id for this quarter
+    for ctx in root.iter():
+        if _local(ctx.tag) != "context":
+            continue
+        cid = ctx.get("id")
+        mem = start = stop = None
+        for el in ctx.iter():
+            n = _local(el.tag)
+            if n == "explicitMember" and "ReportableSegments" in (el.get("dimension") or ""):
+                mem = (el.text or "").strip()
+            elif n == "startDate" and el.text:
+                start = _parse_date(el.text)
+            elif n == "endDate" and el.text:
+                stop = _parse_date(el.text)
+        if cid and mem:
+            member_of[cid] = mem
+            if start and stop == end and 85 <= (stop - start).days <= 95:
+                quarter_ctx.setdefault(mem, cid)
+    if not quarter_ctx:
+        return None
+    names: Dict[str, str] = {}
+    for el in root:
+        if _local(el.tag) == "DescriptionOfReportableSegment" and el.text:
+            mem = member_of.get(el.get("contextRef") or "")
+            if mem and mem not in names:
+                names[mem] = el.text.strip()
+    out = []
+    for mem, cid in quarter_ctx.items():
+        rev = facts.get(("SegmentRevenueFromOperations", cid), facts.get(("SegmentRevenue", cid)))
+        res = facts.get(("SegmentProfitLossBeforeTaxAndFinanceCosts", cid))
+        if not rev:
+            continue
+        label = names.get(mem) or mem.split(":")[-1].replace("Member", "")
+        out.append({"name": label, "revenue": _cr(rev), "result": _cr(res)})
+    out.sort(key=lambda x: -(x["revenue"] or 0))
+    # Drop a lone "total"/single-segment report: not informative.
+    return out if len(out) >= 2 else None
 
 
 def _text_fact(root: ET.Element, names: List[str]) -> Optional[str]:
@@ -160,6 +221,34 @@ def parse_xbrl(content: bytes) -> List[Quarter]:
             pat = pick(PAT)
         eps = pick(EPS)
 
+        def total(names: List[str]) -> Optional[float]:
+            vals = [pick([n]) for n in names]
+            vals = [v for v in vals if v is not None]
+            return sum(vals) if vals else None
+
+        tax = pick(["TaxExpense"])
+        if tax is None:
+            tax = total(["CurrentTax", "DeferredTax"])
+        detail = dict(
+            otherIncome=_cr(pick(OTHER_INCOME)),
+            totalIncome=_cr(pick(["Income", "TotalIncome"])),
+            materialCost=_cr(total(["CostOfMaterialsConsumed", "PurchasesOfStockInTrade",
+                                    "ChangesInInventoriesOfFinishedGoodsWorkInProgressAndStockInTrade"])),
+            employeeCost=_cr(pick(["EmployeeBenefitExpense"])),
+            otherExpenses=_cr(pick(["OtherExpenses"])),
+            totalExpenses=_cr(pick(["Expenses", "TotalExpenses"])),
+            depreciation=_cr(pick(DEPRECIATION)),
+            financeCost=_cr(pick(FINANCE_COSTS)),
+            exceptional=_cr(pick(["ExceptionalItemsBeforeTax", "ExceptionalItems"])),
+            pbt=_cr(pbt),
+            tax=_cr(tax),
+            netProfit=_cr(pick(PAT)),
+            dilutedEps=_round2(pick(["DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
+                                     "DilutedEarningsLossPerShareFromContinuingOperations",
+                                     "DilutedEarningsLossPerShare"])),
+            segments=_segments(root, end, facts),
+        )
+
         try:
             label = quarter_label(end)
         except ValueError:
@@ -170,10 +259,15 @@ def parse_xbrl(content: bytes) -> List[Quarter]:
             revenue=_cr(revenue),
             ebitda=_cr(ebitda),
             pat=_cr(pat),
-            eps=round(eps, 2) if eps is not None else None,
+            eps=_round2(eps),
             consolidated=consolidated,
+            **detail,
         ))
     return quarters
+
+
+def _round2(v: Optional[float]) -> Optional[float]:
+    return None if v is None else round(v, 2)
 
 
 def _cr(v: Optional[float]) -> Optional[float]:

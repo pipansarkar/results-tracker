@@ -86,7 +86,16 @@ class SeedRepository implements Repository {
         final revenue = base * pow(1 + growth, -k / 4) * noise;
         final m = margin * (1 + (rnd.nextDouble() - 0.5) * 0.12);
         final ebitda = revenue * m;
-        final pat = ebitda * (0.55 + rnd.nextDouble() * 0.1);
+        // Consistent sample P&L: costs split, then D&A, interest, tax.
+        final costs = revenue - ebitda;
+        final otherIncome = revenue * 0.015;
+        final dep = revenue * 0.03;
+        final fin = revenue * 0.01;
+        final pbt = ebitda + otherIncome - dep - fin;
+        final tax = pbt * 0.25;
+        final net = pbt - tax;
+        final pat = net * 0.98;
+        final eps = double.parse((pat / (base / 40)).toStringAsFixed(2));
         quarters.add(
           QuarterResult(
             period: quarterLabel(end),
@@ -94,7 +103,25 @@ class SeedRepository implements Repository {
             revenue: _round(revenue),
             ebitda: _round(ebitda),
             pat: _round(pat),
-            eps: double.parse((pat / (base / 40)).toStringAsFixed(2)),
+            eps: eps,
+            otherIncome: _round(otherIncome),
+            totalIncome: _round(revenue + otherIncome),
+            materialCost: _round(costs * 0.45),
+            employeeCost: _round(costs * 0.35),
+            otherExpenses: _round(costs * 0.20),
+            totalExpenses: _round(costs + dep + fin),
+            depreciation: _round(dep),
+            financeCost: _round(fin),
+            exceptional: 0,
+            pbt: _round(pbt),
+            tax: _round(tax),
+            netProfit: _round(net),
+            dilutedEps: eps,
+            segments: [
+              Segment('Domestic', _round(revenue * 0.62)),
+              Segment('International', _round(revenue * 0.31)),
+              Segment('Others', _round(revenue * 0.07)),
+            ],
           ),
         );
       }
@@ -414,4 +441,34 @@ class SeedRepository implements Repository {
   @override
   Future<List<GuidanceItem>> guidance(String symbol) async =>
       _guidance[symbol] ?? [];
+
+  @override
+  Future<List<NewsItem>> filings(String symbol) async {
+    final c = _companies[symbol];
+    if (c == null) return [];
+    final q = c.latest!;
+    final d = q.endDate.add(const Duration(days: 20));
+    return [
+      NewsItem(
+        date: d.add(const Duration(days: 3)),
+        title: 'Analysts/Institutional Investor Meet/Con. Call Updates',
+        text:
+            '[Sample] Transcript of the ${q.period} earnings conference call.',
+        source: 'NSE',
+      ),
+      NewsItem(
+        date: d,
+        title: 'Outcome of Board Meeting',
+        text:
+            '[Sample] Board approved unaudited financial results for ${q.period}.',
+        source: 'NSE',
+      ),
+      NewsItem(
+        date: d.subtract(const Duration(days: 9)),
+        title: 'Board Meeting Intimation',
+        text: '[Sample] Board meeting to consider ${q.period} results.',
+        source: 'NSE',
+      ),
+    ];
+  }
 }

@@ -36,10 +36,16 @@ class QuarterBarChart extends StatelessWidget {
     required this.labels,
     required this.values,
     this.color,
+    this.highlight,
+    this.unit = '₹ Cr',
   });
   final List<String> labels;
   final List<double> values;
   final Color? color;
+
+  /// Index of the bar to emphasise (others are drawn lighter).
+  final int? highlight;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +62,9 @@ class QuarterBarChart extends StatelessWidget {
             barTouchData: BarTouchData(
               touchTooltipData: BarTouchTooltipData(
                 getTooltipItem: (group, _, rod, _) => BarTooltipItem(
-                  '${labels[group.x]}\n₹${rod.toY.toStringAsFixed(0)} Cr',
+                  unit == '₹ Cr'
+                      ? '${labels[group.x]}\n₹${rod.toY.toStringAsFixed(0)} Cr'
+                      : '${labels[group.x]}\n${rod.toY.toStringAsFixed(2)} $unit',
                   const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
@@ -68,8 +76,10 @@ class QuarterBarChart extends StatelessWidget {
                   barRods: [
                     BarChartRodData(
                       toY: values[i],
-                      color: values[i] < 0 ? lossColor : c,
-                      width: 16,
+                      color: (values[i] < 0 ? lossColor : c).withValues(
+                        alpha: highlight == null || highlight == i ? 1 : 0.35,
+                      ),
+                      width: 18,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ],

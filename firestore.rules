@@ -11,6 +11,7 @@ service cloud.firestore {
     match /calendar/{id} { allow read: if true; allow write: if false; }
     match /feed/{doc}    { allow read: if true; allow write: if false; }
     match /meta/{doc}    { allow read: if true; allow write: if false; }
+    match /news/{sym}    { allow read: if true; allow write: if false; }
 
     // Everything else (incl. pipeline_state) is closed.
     match /{document=**} { allow read, write: if false; }

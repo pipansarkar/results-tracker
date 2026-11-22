@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:results_tracker/app.dart';
+import 'package:results_tracker/data/media_news.dart';
 import 'package:results_tracker/data/providers.dart';
 import 'package:results_tracker/data/seed_repository.dart';
 import 'package:results_tracker/models/models.dart';
@@ -18,6 +19,7 @@ Future<void> pumpApp(WidgetTester tester) async {
       overrides: [
         prefsProvider.overrideWithValue(prefs),
         repositoryProvider.overrideWithValue(SeedRepository()),
+        mediaNewsServiceProvider.overrideWithValue(_FakeMedia()),
       ],
       child: const ResultsTrackerApp(),
     ),
@@ -25,7 +27,36 @@ Future<void> pumpApp(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+class _FakeMedia extends MediaNews {
+  @override
+  Future<List<NewsItem>> forCompany(String name, String symbol) async => [
+    NewsItem(
+      date: DateTime.now().subtract(const Duration(hours: 3)),
+      title: '$name shares rise after quarterly results',
+      url: 'https://example.com/a',
+      source: 'Example Times',
+    ),
+  ];
+}
+
+const _rss = """<?xml version="1.0"?><rss><channel>
+<item><title>TCS Q2 profit up 9% - Business Daily</title>
+<link>https://news.example/1</link><pubDate>Sat, 21 Nov 2026 10:30:00 GMT</pubDate>
+<source url="https://bd.example">Business Daily</source></item>
+<item><title>TCS wins large deal - Market Wire</title>
+<link>https://news.example/2</link><pubDate>Sun, 22 Nov 2026 04:00:00 GMT</pubDate>
+<source url="https://mw.example">Market Wire</source></item>
+</channel></rss>""";
+
 void main() {
+  test('Google News RSS parsing', () {
+    final items = MediaNews.parseRss(_rss);
+    expect(items.length, 2);
+    expect(items.first.title, 'TCS wins large deal'); // newest first
+    expect(items.first.source, 'Market Wire');
+    expect(items.last.title, 'TCS Q2 profit up 9%');
+  });
+
   group('models', () {
     test('pctChange', () {
       expect(pctChange(110, 100), closeTo(10, 1e-9));
@@ -59,9 +90,10 @@ void main() {
     await tester.tap(find.text('HDFC Bank'));
     await tester.pumpAndSettle();
     expect(find.text('Revenue'), findsWidgets);
-    expect(find.text('Quarterly table'), findsNothing); // below the fold
+    expect(find.text('Quarterly history'), findsNothing); // below the fold
+    expect(find.textContaining('at a glance'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Quarterly table'),
+      find.text('Quarterly history'),
       300,
       scrollable: find
           .byWidgetPredicate(
@@ -69,7 +101,7 @@ void main() {
           )
           .first,
     );
-    expect(find.text('Quarterly table'), findsOneWidget);
+    expect(find.text('Quarterly history'), findsOneWidget);
 
     // Add to watchlist from the app bar.
     await tester.tap(find.byTooltip('Add to watchlist').first);
@@ -80,6 +112,15 @@ void main() {
     await tester.tap(find.text('Guidance'));
     await tester.pumpAndSettle();
     expect(find.text('Management credibility'), findsOneWidget);
+
+    // News tab: media headline + NSE filings.
+    await tester.tap(find.text('News'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('shares rise after quarterly results'), findsOneWidget);
+    expect(find.text('NSE filing'), findsWidgets);
+    await tester.tap(find.text('NSE filings'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('shares rise'), findsNothing);
 
     // Concall tab -> summary, switch to Bengali.
     await tester.tap(find.text('Concalls'));

@@ -85,4 +85,13 @@ class FirestoreRepository implements Repository {
         .get();
     return snap.docs.map((d) => GuidanceItem.fromMap(d.data())).toList();
   }
+
+  @override
+  Future<List<NewsItem>> filings(String symbol) async {
+    final doc = await _db.collection('news').doc(symbol).get();
+    return ((doc.data()?['items'] as List?) ?? [])
+        .map((e) => NewsItem.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+  }
 }

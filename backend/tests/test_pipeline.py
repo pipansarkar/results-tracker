@@ -25,6 +25,7 @@ def test_parse_xbrl_picks_quarter_contexts_and_converts_to_crore():
     assert cur.revenue == 1200.0
     # EBITDA = PBT + finance + D&A - other income = 200 + 10 + 30 - 20
     assert cur.ebitda == 220.0
+    assert cur.otherIncome == 20.0 and cur.financeCost == 10.0 and cur.pbt == 200.0
     assert cur.pat == 145.0  # attributable to owners, not total PAT
     assert cur.eps == 12.35 or cur.eps == 12.34  # float rounding
     assert ago.revenue == 1000.0
@@ -177,8 +178,11 @@ def test_pipeline_results_flow_with_fake_nse(tmp_path):
     pipe.process_board_meetings()
     pipe.process_announcements(days=2)
     pipe.flush_calendar()
+    pipe.flush_news()
     pipe.save_state()
 
+    news = store.get("news/TEST")["items"]
+    assert len(news) == 2 and news[0]["title"].startswith("Analysts")
     doc = store.get("companies/TEST")
     assert doc["quarters"][0]["period"] == "Q2FY27"
     assert doc["credibility"]["met"] == 1

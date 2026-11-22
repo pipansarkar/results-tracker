@@ -26,6 +26,9 @@ abstract class Repository {
 
   /// Guidance statements tracked against actuals.
   Future<List<GuidanceItem>> guidance(String symbol);
+
+  /// The company's latest NSE announcements, newest first (one doc).
+  Future<List<NewsItem>> filings(String symbol);
 }
 
 String dateId(DateTime d) =>

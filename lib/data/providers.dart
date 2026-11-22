@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import 'media_news.dart';
 import 'repository.dart';
 
 /// Overridden in main() with Firestore or Seed implementation.
@@ -49,6 +50,19 @@ final concallsProvider = FutureProvider.family<List<Concall>, String>(
 final guidanceProvider = FutureProvider.family<List<GuidanceItem>, String>(
   (ref, symbol) => ref.watch(repositoryProvider).guidance(symbol),
 );
+
+final filingsProvider = FutureProvider.family<List<NewsItem>, String>(
+  (ref, symbol) => ref.watch(repositoryProvider).filings(symbol),
+);
+
+final mediaNewsServiceProvider = Provider<MediaNews>((ref) => MediaNews());
+
+/// Media headlines for (symbol, company name).
+final mediaNewsProvider =
+    FutureProvider.family<List<NewsItem>, (String, String)>(
+      (ref, key) =>
+          ref.watch(mediaNewsServiceProvider).forCompany(key.$2, key.$1),
+    );
 
 // ---------------------------------------------------------------- watchlist
 
