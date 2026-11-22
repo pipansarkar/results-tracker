@@ -1,0 +1,101 @@
+"""Check management guidance against reported numbers.
+
+All supported metrics are "higher is better", so guidance counts as met when
+the actual figure reaches the lower bound (or the single target) minus a small
+tolerance. Beating the upper end of a range still counts as met. Metrics marked
+"other" stay pending, since they can't be checked automatically.
+"""
+from __future__ import annotations
+
+import re
+from typing import Dict, List, Optional, Tuple
+
+from xbrl import pct_change
+
+TOLERANCE = {"revenue_growth_yoy": 1.0, "pat_growth_yoy": 2.0,
+             "ebitda_margin": 0.5, "revenue": 0.0}
+
+
+def _by_period(quarters: List[Dict]) -> Dict[str, Dict]:
+    return {q["period"]: q for q in quarters}
+
+
+def _fy_totals(quarters: List[Dict], fy: int) -> Optional[Dict[str, float]]:
+    qs = _by_period(quarters)
+    rows = [qs.get(f"Q{i}FY{fy % 100:02d}") for i in range(1, 5)]
+    if any(r is None or r.get("revenue") is None for r in rows):
+        return None
+    tot = {"revenue": sum(r["revenue"] for r in rows)}
+    for k in ("ebitda", "pat"):
+        vals = [r.get(k) for r in rows]
+        tot[k] = sum(vals) if all(v is not None for v in vals) else None
+    return tot
+
+
+def _prev_quarter_label(label: str) -> str:
+    """Same quarter one year earlier: Q2FY27 -> Q2FY26."""
+    q, fy = label[:2], int(label[4:])
+    return f"{q}FY{fy - 1:02d}"
+
+
+def actual_value(metric: str, target_period: str, quarters: List[Dict]) -> Optional[float]:
+    tp = target_period.strip().upper()
+    if re.fullmatch(r"Q[1-4]FY\d{2}", tp):
+        qs = _by_period(quarters)
+        now, ago = qs.get(tp), qs.get(_prev_quarter_label(tp))
+        if now is None:
+            return None
+        cur: Dict = now
+        prev: Optional[Dict] = ago
+    elif re.fullmatch(r"FY\d{2}", tp):
+        fy = 2000 + int(tp[2:])
+        cur = _fy_totals(quarters, fy)
+        if cur is None:
+            return None
+        prev = _fy_totals(quarters, fy - 1)
+    else:
+        return None
+
+    if metric == "revenue":
+        return cur.get("revenue")
+    if metric == "ebitda_margin":
+        if cur.get("ebitda") is None or not cur.get("revenue"):
+            return None
+        return round(cur["ebitda"] / cur["revenue"] * 100, 2)
+    if metric == "revenue_growth_yoy":
+        return pct_change(cur.get("revenue"), (prev or {}).get("revenue"))
+    if metric == "pat_growth_yoy":
+        return pct_change(cur.get("pat"), (prev or {}).get("pat"))
+    return None
+
+
+def evaluate(item: Dict, quarters: List[Dict]) -> Tuple[str, Optional[float]]:
+    """Return (status, actual). status in pending|met|missed."""
+    metric = item.get("metric", "other")
+    low, high = item.get("low"), item.get("high")
+    target = low if low is not None else high
+    if metric not in TOLERANCE or target is None:
+        return "pending", None
+    actual = actual_value(metric, item.get("targetPeriod", ""), quarters)
+    if actual is None:
+        return "pending", None
+    return ("met" if actual >= target - TOLERANCE[metric] else "missed"), actual
+
+
+def format_target(item: Dict) -> str:
+    unit = " Cr" if item.get("metric") == "revenue" else "%"
+    low, high = item.get("low"), item.get("high")
+    if low is not None and high is not None and low != high:
+        return f"{low:g}–{high:g}{unit}"
+    if low is not None and high is None:
+        return f"≥ {low:g}{unit}"
+    v = low if low is not None else high
+    return f"{v:g}{unit}" if v is not None else ""
+
+
+def credibility(items: List[Dict]) -> Dict[str, int]:
+    met = sum(1 for i in items if i.get("status") == "met")
+    missed = sum(1 for i in items if i.get("status") == "missed")
+    pending = sum(1 for i in items if i.get("status") == "pending")
+    score = round(met / (met + missed) * 100) if (met + missed) else 0
+    return {"score": score, "met": met, "missed": missed, "pending": pending}

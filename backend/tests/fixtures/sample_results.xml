@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal synthetic Ind AS results XBRL for tests (not a real filing). -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"
+            xmlns:in-capmkt="http://www.sebi.gov.in/xbrl/2023-12-31/in-capmkt"
+            xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
+  <xbrli:context id="OneD">
+    <xbrli:entity><xbrli:identifier scheme="http://www.nseindia.com">TEST</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="OneDPrevYear">
+    <xbrli:entity><xbrli:identifier scheme="http://www.nseindia.com">TEST</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-07-01</xbrli:startDate><xbrli:endDate>2025-09-30</xbrli:endDate></xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="HalfYear">
+    <xbrli:entity><xbrli:identifier scheme="http://www.nseindia.com">TEST</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2026-04-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="OneD_Segment">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://www.nseindia.com">TEST</xbrli:identifier>
+      <xbrli:segment><xbrldi:explicitMember dimension="in-capmkt:SegmentsAxis">in-capmkt:Seg1</xbrldi:explicitMember></xbrli:segment>
+    </xbrli:entity>
+    <xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period>
+  </xbrli:context>
+
+  <in-capmkt:NatureOfReportStandaloneConsolidated contextRef="OneD">Consolidated</in-capmkt:NatureOfReportStandaloneConsolidated>
+
+  <!-- Current quarter: revenue 1,200 Cr -->
+  <in-capmkt:RevenueFromOperations contextRef="OneD" unitRef="INR" decimals="-5">12000000000</in-capmkt:RevenueFromOperations>
+  <in-capmkt:OtherIncome contextRef="OneD" unitRef="INR" decimals="-5">200000000</in-capmkt:OtherIncome>
+  <in-capmkt:FinanceCosts contextRef="OneD" unitRef="INR" decimals="-5">100000000</in-capmkt:FinanceCosts>
+  <in-capmkt:DepreciationDepletionAndAmortisationExpense contextRef="OneD" unitRef="INR" decimals="-5">300000000</in-capmkt:DepreciationDepletionAndAmortisationExpense>
+  <in-capmkt:ProfitBeforeTax contextRef="OneD" unitRef="INR" decimals="-5">2000000000</in-capmkt:ProfitBeforeTax>
+  <in-capmkt:ProfitLossForPeriod contextRef="OneD" unitRef="INR" decimals="-5">1500000000</in-capmkt:ProfitLossForPeriod>
+  <in-capmkt:ProfitOrLossAttributableToOwnersOfParent contextRef="OneD" unitRef="INR" decimals="-5">1450000000</in-capmkt:ProfitOrLossAttributableToOwnersOfParent>
+  <in-capmkt:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD" unitRef="INRPerShare" decimals="2">12.345</in-capmkt:BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations>
+  <!-- Segment fact must be ignored -->
+  <in-capmkt:RevenueFromOperations contextRef="OneD_Segment" unitRef="INR" decimals="-5">999</in-capmkt:RevenueFromOperations>
+  <!-- Half-year fact must be ignored -->
+  <in-capmkt:RevenueFromOperations contextRef="HalfYear" unitRef="INR" decimals="-5">23000000000</in-capmkt:RevenueFromOperations>
+
+  <!-- Year-ago quarter: revenue 1,000 Cr -->
+  <in-capmkt:RevenueFromOperations contextRef="OneDPrevYear" unitRef="INR" decimals="-5">10000000000</in-capmkt:RevenueFromOperations>
+  <in-capmkt:ProfitBeforeTax contextRef="OneDPrevYear" unitRef="INR" decimals="-5">1600000000</in-capmkt:ProfitBeforeTax>
+  <in-capmkt:ProfitOrLossAttributableToOwnersOfParent contextRef="OneDPrevYear" unitRef="INR" decimals="-5">1200000000</in-capmkt:ProfitOrLossAttributableToOwnersOfParent>
+</xbrli:xbrl>

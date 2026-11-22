@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public market data (from public NSE filings): anyone can read.
+    // Only the backend writes, via the Admin SDK, which bypasses these rules.
+    match /companies/{symbol} {
+      allow read: if true;
+      allow write: if false;
+      match /{sub=**} { allow read: if true; allow write: if false; }
+    }
+    match /calendar/{id} { allow read: if true; allow write: if false; }
+    match /feed/{doc}    { allow read: if true; allow write: if false; }
+    match /meta/{doc}    { allow read: if true; allow write: if false; }
+
+    // Everything else (incl. pipeline_state) is closed.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
