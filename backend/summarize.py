@@ -108,7 +108,8 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
 
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        # Treated like a quota stop: transcripts stay queued until a key exists.
+        raise QuotaExceeded("GEMINI_API_KEY is not set")
     prev = ""
     if previous:
         en = (previous.get("summary") or {}).get("en") or {}
