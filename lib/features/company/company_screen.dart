@@ -44,12 +44,6 @@ class CompanyScreen extends ConsumerWidget {
           ),
           actions: [
             IconButton(
-              tooltip: 'Ask AI about this company',
-              icon: const Icon(Icons.auto_awesome),
-              onPressed: () =>
-                  context.push('/company/${Uri.encodeComponent(symbol)}/ask'),
-            ),
-            IconButton(
               tooltip: 'Compare with other stocks',
               icon: const Icon(Icons.compare_arrows),
               onPressed: () =>

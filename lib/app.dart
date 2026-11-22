@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme.dart';
-import 'features/ask/ask_screen.dart';
 import 'features/calendar/calendar_screen.dart';
 import 'features/company/company_screen.dart';
 import 'features/compare/compare_screen.dart';
@@ -78,10 +77,6 @@ GoRouter buildRouter() => GoRouter(
       path: '/company/:symbol',
       builder: (_, s) => CompanyScreen(symbol: s.pathParameters['symbol']!),
       routes: [
-        GoRoute(
-          path: 'ask',
-          builder: (_, s) => AskScreen(symbol: s.pathParameters['symbol']!),
-        ),
         GoRoute(
           path: 'concall/:period',
           builder: (_, s) => ConcallScreen(

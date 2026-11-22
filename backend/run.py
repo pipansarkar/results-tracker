@@ -1177,7 +1177,6 @@ def main() -> None:
             pipe.process_transcripts()
             pipe.flush_calendar()
         if not symbols:
-            pipe.process_ai_config()
             pipe.process_digest()
             now = now_ist()
             if (now.hour, now.minute) >= (7, 50):
