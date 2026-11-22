@@ -693,6 +693,28 @@ class SeedRepository implements Repository {
       final debt = equity * rnd.nextDouble() * 0.8;
       final growth = (eps / epsPrev - 1) * 100;
       final bank = c.sector.contains('Bank') || c.sector == 'NBFC';
+      final qs = <QuarterStat>[
+        for (var i = 0; i < 4 && i + 1 < q.length; i++)
+          QuarterStat(
+            q[i].period,
+            revenue: q[i].revenue,
+            profit: q[i].pat,
+            revYoy: i + 4 < q.length
+                ? pctChange(q[i].revenue, q[i + 4].revenue)
+                : null,
+            profitYoy: i + 4 < q.length
+                ? pctChange(q[i].pat, q[i + 4].pat)
+                : null,
+            revQoq: pctChange(q[i].revenue, q[i + 1].revenue),
+            profitQoq: pctChange(q[i].pat, q[i + 1].pat),
+            ebitdaMargin: q[i].ebitda != null && q[i].revenue != null
+                ? q[i].ebitda! / q[i].revenue! * 100
+                : null,
+            netMargin: q[i].pat != null && q[i].revenue != null
+                ? q[i].pat! / q[i].revenue! * 100
+                : null,
+          ),
+      ];
       out.add(
         StockMetrics(
           symbol: c.symbol,
@@ -720,6 +742,21 @@ class SeedRepository implements Repository {
           profitGrowthTtm: (pat / patPrev - 1) * 100,
           ebitdaMargin: ebitda / rev * 100,
           netMargin: pat / rev * 100,
+          quarters: qs,
+          quarter: qs.firstOrNull,
+          years: [
+            for (final fy in {for (final r in q) r.period.substring(2)})
+              if (q.where((r) => r.period.endsWith(fy)).length == 4)
+                QuarterStat(
+                  fy,
+                  revenue: q
+                      .where((r) => r.period.endsWith(fy))
+                      .fold<double>(0, (a, r) => a + (r.revenue ?? 0)),
+                  profit: q
+                      .where((r) => r.period.endsWith(fy))
+                      .fold<double>(0, (a, r) => a + (r.pat ?? 0)),
+                ),
+          ],
           isBank: bank,
         ),
       );

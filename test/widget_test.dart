@@ -258,8 +258,32 @@ void main() {
     expect(find.textContaining('ROE ≥'), findsOneWidget); // active chip
     expect(find.textContaining('Sorted by P/E ↑'), findsOneWidget);
 
-    // Pick two stocks -> Compare.
     await tester.tap(find.text('Value')); // clear preset
+    await tester.pumpAndSettle();
+
+    // Quarter and financial-year chips come from the data.
+    expect(find.text('Latest quarter'), findsOneWidget);
+    final qChip = find.textContaining(RegExp(r'^Q\d FY\d\d$'));
+    expect(qChip, findsWidgets);
+    final qLabel = tester.widget<Text>(qChip.at(1)).data!;
+    await tester.ensureVisible(find.text(qLabel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(qLabel));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('$qLabel results'), findsOneWidget);
+    final fyChip = find.textContaining(RegExp(r'^FY\d\d$'));
+    expect(fyChip, findsWidgets);
+    await tester.ensureVisible(fyChip.first);
+    await tester.pumpAndSettle();
+    final fyLabel = tester.widget<Text>(fyChip.first).data!;
+    await tester.tap(find.text(fyLabel));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('$fyLabel results'), findsOneWidget);
+    await tester.tap(find.text(fyLabel)); // tap again = back to latest
+    await tester.pumpAndSettle();
+    expect(find.textContaining('20 stocks'), findsOneWidget);
+
+    // Pick two stocks -> Compare.
     await tester.pumpAndSettle();
     final boxes = find.byType(Checkbox);
     await tester.tap(boxes.at(0));

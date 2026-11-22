@@ -76,6 +76,8 @@ def compute(quarters: List[Dict], price: Optional[float],
         "roe": _r(pat / avg_equity * 100 if pat is not None and avg_equity and avg_equity > 0 else None, 1),
         "bank": bank or None,
     }
+    m["qs"] = quarter_stats(quarters) or None
+    m["fy"] = year_stats(quarters) or None
     if not bank:
         cap_employed = (equity or 0) + (debt or 0)
         m["roce"] = _r((pbt + fin) / cap_employed * 100 if pbt is not None and fin is not None
@@ -100,6 +102,65 @@ def compute(quarters: List[Dict], price: Optional[float],
             m["dps"] = _r(dps)
             m["dy"] = _r(dps / price * 100)
     return {k: v for k, v in m.items() if v is not None}
+
+
+def quarter_stats(quarters: List[Dict], n: int = 4) -> List[Dict]:
+    """Per-quarter figures for the screener's quarter filter (newest first):
+    q period, r revenue, p profit, rg/pg YoY %, rq/pq QoQ %, em EBITDA margin %, nm net margin %."""
+    out = []
+    for i, q in enumerate(quarters[:n]):
+        ago = next((x for x in quarters[i + 1:i + 6] if x["period"][:2] == q["period"][:2]
+                    and x["period"][4:] != q["period"][4:]), None)
+        prev = quarters[i + 1] if i + 1 < len(quarters) else None
+        try:  # QoQ only against the directly preceding quarter
+            gap = (date.fromisoformat(q["endDate"]) - date.fromisoformat(prev["endDate"])).days if prev else 0
+            if not 80 <= gap <= 100:
+                prev = None
+        except (KeyError, TypeError, ValueError):
+            prev = None
+        rev, pat, ebitda = q.get("revenue"), q.get("pat"), q.get("ebitda")
+        s = {
+            "q": q["period"], "r": _r(rev, 0), "p": _r(pat, 0),
+            "rg": _r(_pct(rev, (ago or {}).get("revenue")), 1),
+            "pg": _r(_pct(pat, (ago or {}).get("pat")), 1),
+            "rq": _r(_pct(rev, (prev or {}).get("revenue")), 1),
+            "pq": _r(_pct(pat, (prev or {}).get("pat")), 1),
+            "em": _r(ebitda / rev * 100 if ebitda is not None and rev else None, 1),
+            "nm": _r(pat / rev * 100 if pat is not None and rev else None, 1),
+        }
+        out.append({k: v for k, v in s.items() if v is not None})
+    return out
+
+
+def year_stats(quarters: List[Dict], n: int = 3) -> List[Dict]:
+    """Full financial years (all four quarters reported), newest first:
+    q 'FY26', r revenue, p profit, rg/pg YoY % vs the previous full year,
+    em EBITDA margin %, nm net margin %."""
+    years: Dict[str, Dict[str, Dict]] = {}
+    for q in quarters:
+        per = q.get("period") or ""
+        if len(per) >= 6 and per[0] == "Q" and per[2:4] == "FY":
+            years.setdefault(per[2:], {}).setdefault(per[:2], q)
+
+    def total(qs: Dict[str, Dict], key: str) -> Optional[float]:
+        vals = [x.get(key) for x in qs.values()]
+        return sum(vals) if all(v is not None for v in vals) else None
+
+    full = {y: qs for y, qs in years.items() if len(qs) == 4}
+    out = []
+    for y in sorted(full, key=lambda y: int(y[2:]) if y[2:].isdigit() else 0, reverse=True)[:n]:
+        qs = full[y]
+        prev = full.get(f"FY{int(y[2:]) - 1:02d}") if y[2:].isdigit() else None
+        rev, pat, ebitda = total(qs, "revenue"), total(qs, "pat"), total(qs, "ebitda")
+        st = {
+            "q": y, "r": _r(rev, 0), "p": _r(pat, 0),
+            "rg": _r(_pct(rev, total(prev, "revenue") if prev else None), 1),
+            "pg": _r(_pct(pat, total(prev, "pat") if prev else None), 1),
+            "em": _r(ebitda / rev * 100 if ebitda is not None and rev else None, 1),
+            "nm": _r(pat / rev * 100 if pat is not None and rev else None, 1),
+        }
+        out.append({k: v for k, v in st.items() if v is not None})
+    return out
 
 
 # --------------------------------------------------------------- prices

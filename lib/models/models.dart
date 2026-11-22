@@ -652,6 +652,48 @@ class NewsItem {
 /// Valuation and quality ratios for one stock (screener/{n} docs).
 /// TTM = trailing twelve months. Null when not meaningful (e.g. P/E for a
 /// loss-making company, debt ratios for banks).
+/// One quarter's figures in a screener row.
+class QuarterStat {
+  final String period;
+  final double? revenue, profit, revYoy, profitYoy, revQoq, profitQoq;
+  final double? ebitdaMargin, netMargin;
+  const QuarterStat(
+    this.period, {
+    this.revenue,
+    this.profit,
+    this.revYoy,
+    this.profitYoy,
+    this.revQoq,
+    this.profitQoq,
+    this.ebitdaMargin,
+    this.netMargin,
+  });
+
+  factory QuarterStat.fromMap(Map<String, dynamic> m) => QuarterStat(
+    m['q'] as String,
+    revenue: _d(m['r']),
+    profit: _d(m['p']),
+    revYoy: _d(m['rg']),
+    profitYoy: _d(m['pg']),
+    revQoq: _d(m['rq']),
+    profitQoq: _d(m['pq']),
+    ebitdaMargin: _d(m['em']),
+    netMargin: _d(m['nm']),
+  );
+}
+
+/// "Q2FY27" -> "Q2 FY27"
+String periodLabel(String p) =>
+    p.startsWith('Q') && p.length > 2 && !p.contains(' ')
+    ? '${p.substring(0, 2)} ${p.substring(2)}'
+    : p;
+
+/// Sort key for "QnFYyy" labels (newest = largest).
+int periodOrder(String p) {
+  final m = RegExp(r'Q(\d)\s*FY(\d{2})').firstMatch(p);
+  return m == null ? 0 : int.parse(m[2]!) * 10 + int.parse(m[1]!);
+}
+
 class StockMetrics {
   final String symbol;
   final String? period;
@@ -686,7 +728,69 @@ class StockMetrics {
   /// days since that call.
   final double? guidedRevGrowth, guidedPatGrowth, guidedMargin;
   final double? guidanceDir, callTone, credibility, daysSinceCall;
+
+  /// Last 4 quarters (newest first) and the quarter the quarterly metrics
+  /// below refer to (the latest unless the screener picked another).
+  final List<QuarterStat> quarters;
+
+  /// Full financial years (e.g. FY26), newest first.
+  final List<QuarterStat> years;
+  final QuarterStat? quarter;
   final bool isBank;
+
+  double? get revGrowthQoq => quarter?.revQoq;
+  double? get profitGrowthQoq => quarter?.profitQoq;
+  double? get qtrEbitdaMargin => quarter?.ebitdaMargin;
+  double? get qtrNetMargin => quarter?.netMargin;
+  double? get qtrRevenue => quarter?.revenue;
+  double? get qtrProfit => quarter?.profit;
+
+  /// The same stock with quarterly metrics taken from [period], or null if
+  /// that quarter isn't reported yet.
+  StockMetrics? atQuarter(String period) {
+    final q = [
+      ...quarters,
+      ...years,
+    ].where((x) => x.period == period).firstOrNull;
+    if (q == null) return null;
+    return StockMetrics(
+      symbol: symbol,
+      period: q.period,
+      asOf: asOf,
+      price: price,
+      marketCap: marketCap,
+      pe: pe,
+      peg: peg,
+      pb: pb,
+      roe: roe,
+      roce: roce,
+      debtEquity: debtEquity,
+      evEbitda: evEbitda,
+      bookValue: bookValue,
+      epsTtm: epsTtm,
+      revenueTtm: revenueTtm,
+      profitTtm: profitTtm,
+      revGrowth: q.revYoy,
+      profitGrowth: q.profitYoy,
+      revGrowthTtm: revGrowthTtm,
+      profitGrowthTtm: profitGrowthTtm,
+      ebitdaMargin: ebitdaMargin,
+      netMargin: netMargin,
+      dividendYield: dividendYield,
+      dividendPerShare: dividendPerShare,
+      guidedRevGrowth: guidedRevGrowth,
+      guidedPatGrowth: guidedPatGrowth,
+      guidedMargin: guidedMargin,
+      guidanceDir: guidanceDir,
+      callTone: callTone,
+      credibility: credibility,
+      daysSinceCall: daysSinceCall,
+      quarters: quarters,
+      years: years,
+      quarter: q,
+      isBank: isBank,
+    );
+  }
 
   const StockMetrics({
     required this.symbol,
@@ -720,44 +824,58 @@ class StockMetrics {
     this.callTone,
     this.credibility,
     this.daysSinceCall,
+    this.quarters = const [],
+    this.years = const [],
+    this.quarter,
     this.isBank = false,
   });
 
-  factory StockMetrics.fromMap(Map<String, dynamic> m, {String? asOf}) =>
-      StockMetrics(
-        symbol: m['s'] as String,
-        period: m['q'] as String?,
-        asOf: asOf,
-        price: _d(m['p']),
-        marketCap: _d(m['mc']),
-        pe: _d(m['pe']),
-        peg: _d(m['peg']),
-        pb: _d(m['pb']),
-        roe: _d(m['roe']),
-        roce: _d(m['roce']),
-        debtEquity: _d(m['de']),
-        evEbitda: _d(m['ev']),
-        bookValue: _d(m['bv']),
-        epsTtm: _d(m['eps']),
-        revenueTtm: _d(m['rev']),
-        profitTtm: _d(m['pat']),
-        revGrowth: _d(m['rg']),
-        profitGrowth: _d(m['pg']),
-        revGrowthTtm: _d(m['rgt']),
-        profitGrowthTtm: _d(m['pgt']),
-        ebitdaMargin: _d(m['ebm']),
-        netMargin: _d(m['npm']),
-        dividendYield: _d(m['dy']),
-        dividendPerShare: _d(m['dps']),
-        guidedRevGrowth: _d(m['gr']),
-        guidedPatGrowth: _d(m['gp']),
-        guidedMargin: _d(m['gm']),
-        guidanceDir: _d(m['gd']),
-        callTone: _d(m['tn']),
-        credibility: _d(m['cr']),
-        daysSinceCall: _d(m['lc']),
-        isBank: m['bank'] as bool? ?? false,
-      );
+  factory StockMetrics.fromMap(Map<String, dynamic> m, {String? asOf}) {
+    final qs = [
+      for (final e in (m['qs'] as List? ?? const []))
+        QuarterStat.fromMap(Map<String, dynamic>.from(e as Map)),
+    ];
+    return StockMetrics(
+      quarters: qs,
+      years: [
+        for (final e in (m['fy'] as List? ?? const []))
+          QuarterStat.fromMap(Map<String, dynamic>.from(e as Map)),
+      ],
+      quarter: qs.firstOrNull,
+      symbol: m['s'] as String,
+      period: m['q'] as String?,
+      asOf: asOf,
+      price: _d(m['p']),
+      marketCap: _d(m['mc']),
+      pe: _d(m['pe']),
+      peg: _d(m['peg']),
+      pb: _d(m['pb']),
+      roe: _d(m['roe']),
+      roce: _d(m['roce']),
+      debtEquity: _d(m['de']),
+      evEbitda: _d(m['ev']),
+      bookValue: _d(m['bv']),
+      epsTtm: _d(m['eps']),
+      revenueTtm: _d(m['rev']),
+      profitTtm: _d(m['pat']),
+      revGrowth: _d(m['rg']),
+      profitGrowth: _d(m['pg']),
+      revGrowthTtm: _d(m['rgt']),
+      profitGrowthTtm: _d(m['pgt']),
+      ebitdaMargin: _d(m['ebm']),
+      netMargin: _d(m['npm']),
+      dividendYield: _d(m['dy']),
+      dividendPerShare: _d(m['dps']),
+      guidedRevGrowth: _d(m['gr']),
+      guidedPatGrowth: _d(m['gp']),
+      guidedMargin: _d(m['gm']),
+      guidanceDir: _d(m['gd']),
+      callTone: _d(m['tn']),
+      credibility: _d(m['cr']),
+      daysSinceCall: _d(m['lc']),
+      isBank: m['bank'] as bool? ?? false,
+    );
+  }
 }
 
 /// One metric that can be shown, filtered, sorted and compared.
@@ -880,6 +998,54 @@ final List<MetricDef> metricDefs = [
     help: 'Latest quarter profit vs same quarter last year.',
   ),
   MetricDef(
+    'rq',
+    'Revenue growth (QoQ)',
+    'Rev QoQ',
+    (m) => m.revGrowthQoq,
+    '%',
+    help: 'Quarter revenue vs the quarter just before.',
+  ),
+  MetricDef(
+    'pq',
+    'Profit growth (QoQ)',
+    'Profit QoQ',
+    (m) => m.profitGrowthQoq,
+    '%',
+    help: 'Quarter profit vs the quarter just before.',
+  ),
+  MetricDef(
+    'qem',
+    'EBITDA margin (quarter)',
+    'Qtr EBITDA %',
+    (m) => m.qtrEbitdaMargin,
+    '%',
+    help: 'EBITDA ÷ revenue for the quarter.',
+  ),
+  MetricDef(
+    'qnm',
+    'Net margin (quarter)',
+    'Qtr net %',
+    (m) => m.qtrNetMargin,
+    '%',
+    help: 'Profit ÷ revenue for the quarter.',
+  ),
+  MetricDef(
+    'qr',
+    'Revenue (quarter)',
+    'Qtr revenue',
+    (m) => m.qtrRevenue,
+    'Cr',
+    help: 'Revenue for the quarter.',
+  ),
+  MetricDef(
+    'qp',
+    'Net profit (quarter)',
+    'Qtr profit',
+    (m) => m.qtrProfit,
+    'Cr',
+    help: 'Profit to shareholders for the quarter.',
+  ),
+  MetricDef(
     'rgt',
     'Revenue growth (TTM)',
     'Rev gr. TTM',
@@ -949,7 +1115,8 @@ final List<MetricDef> metricDefs = [
     'Guidance',
     (m) => m.guidanceDir,
     'dir',
-    help: 'Did management raise, maintain or cut guidance vs the previous call?',
+    help:
+        'Did management raise, maintain or cut guidance vs the previous call?',
   ),
   MetricDef(
     'tn',
@@ -957,7 +1124,8 @@ final List<MetricDef> metricDefs = [
     'Tone',
     (m) => m.callTone,
     'tone',
-    help: 'Management tone in the latest concall: positive, neutral or cautious.',
+    help:
+        'Management tone in the latest concall: positive, neutral or cautious.',
   ),
   MetricDef(
     'cr',

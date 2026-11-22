@@ -974,8 +974,8 @@ class Pipeline:
 
     # -------------------------------------------------------------- screener
 
-    def process_screener(self, force: bool = False, chunk: int = 600) -> None:
-        """Ratios for every stock -> screener/{n} docs (compact keys, ~600
+    def process_screener(self, force: bool = False, chunk: int = 400) -> None:
+        """Ratios for every stock -> screener/{n} docs (compact keys, ~400
         stocks each, to stay under Firestore's 1 MB document limit).
         Runs once per new trading day, or when forced (after a full load)."""
         import metrics
@@ -1512,9 +1512,9 @@ def main() -> None:
             pipe.flush_calendar()
         if not symbols:
             try:  # after summaries, so the day's concall/guidance filters are current
-                first = pipe.state.get("screenerV") != 2  # one-off rebuild adding guidance fields
+                first = pipe.state.get("screenerV") != 3  # one-off rebuild adding guidance fields
                 pipe.process_screener(force=first)
-                pipe.state["screenerV"] = 2
+                pipe.state["screenerV"] = 3
             except Exception as e:  # ratios must never block results/summaries
                 log.warning("screener failed: %s", e)
         if not symbols:

@@ -66,6 +66,12 @@ const _filterKeys = [
   'de',
   'rg',
   'pg',
+  'rq',
+  'pq',
+  'qem',
+  'qnm',
+  'qr',
+  'qp',
   'rgt',
   'ebm',
   'npm',
@@ -110,6 +116,9 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
   String? _preset;
   String _sort = 'mc';
   bool _desc = true;
+
+  /// Quarter the quarterly filters refer to; null = each stock's latest.
+  String? _quarter;
   final Set<String> _picked = {};
 
   bool _pass(StockMetrics m, CompanyLite? c) {
@@ -269,6 +278,11 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
                 ],
               ),
             ),
+          _QuarterChips(
+            periods: _recentPeriods(screener.value ?? const []),
+            selected: _quarter,
+            onSelected: (p) => setState(() => _quarter = p),
+          ),
           SizedBox(
             height: 44,
             child: ListView(
@@ -319,9 +333,12 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
               loading: () => loading,
               error: asyncError,
               data: (all) {
-                final rows = all
-                    .where((m) => _pass(m, bySym[m.symbol]))
-                    .toList();
+                final rows = [
+                  for (final m in all)
+                    if ((_quarter == null ? m : m.atQuarter(_quarter!))
+                        case final mq?)
+                      if (_pass(mq, bySym[m.symbol])) mq,
+                ];
                 rows.sort((a, b) {
                   final va = sortDef.get(a), vb = sortDef.get(b);
                   if (va == null && vb == null) return 0;
@@ -343,14 +360,23 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
                       child: Row(
                         children: [
-                          Text(
-                            '${rows.length} stocks',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          Expanded(
+                            child: Text(
+                              '${rows.length} stocks'
+                              '${_quarter != null ? ' · ${periodLabel(_quarter!)} results' : ''}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          const Spacer(),
-                          Text(
-                            'Sorted by ${sortDef.short} ${_desc ? '↓' : '↑'}',
-                            style: Theme.of(context).textTheme.bodySmall,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Sorted by ${sortDef.short} ${_desc ? '↓' : '↑'}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
@@ -395,6 +421,32 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
         ],
       ),
     );
+  }
+
+  /// Quarters with results from a meaningful number of companies, newest
+  /// first. Built from the data, so a new quarter shows up by itself as
+  /// soon as companies start reporting it.
+  static List<String> _recentPeriods(List<StockMetrics> all) {
+    final count = <String, int>{};
+    for (final m in all) {
+      for (final q in m.quarters) {
+        count[q.period] = (count[q.period] ?? 0) + 1;
+      }
+    }
+    final min = all.length < 100 ? 1 : 10;
+    final list =
+        count.entries.where((e) => e.value >= min).map((e) => e.key).toList()
+          ..sort((a, b) => periodOrder(b).compareTo(periodOrder(a)));
+    final years = <String, int>{};
+    for (final m in all) {
+      for (final y in m.years) {
+        years[y.period] = (years[y.period] ?? 0) + 1;
+      }
+    }
+    final fy =
+        years.entries.where((e) => e.value >= min).map((e) => e.key).toList()
+          ..sort((a, b) => b.compareTo(a));
+    return [...list.take(4), ...fy.take(3)];
   }
 
   Future<void> _saveScreen() async {
@@ -457,9 +509,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
   static String _rangeLabel(MetricDef d, Range r) {
     final (lo, hi) = r;
-    final choice = _choiceFilters[d.key]
-        ?.where((c) => c.$2 == r)
-        .firstOrNull;
+    final choice = _choiceFilters[d.key]?.where((c) => c.$2 == r).firstOrNull;
     if (choice != null) return '${d.short}: ${choice.$1}';
     String f(double v) =>
         d.unit == 'days' ? '${v.round()} days' : metricValue(v, d.unit);
@@ -495,6 +545,49 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
         _preset = null;
       });
     }
+  }
+}
+
+class _QuarterChips extends StatelessWidget {
+  const _QuarterChips({
+    required this.periods,
+    required this.selected,
+    required this.onSelected,
+  });
+  final List<String> periods;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (periods.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              avatar: const Icon(Icons.event_note_outlined, size: 16),
+              label: const Text('Latest quarter'),
+              selected: selected == null,
+              onSelected: (_) => onSelected(null),
+            ),
+          ),
+          for (final p in periods)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(periodLabel(p)),
+                selected: selected == p,
+                onSelected: (_) => onSelected(selected == p ? null : p),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -608,7 +701,7 @@ class _Pill extends StatelessWidget {
     final v = d.get(m);
     final isGrowth =
         d.unit == '%' &&
-        (d.key == 'rg' || d.key == 'pg' || d.key == 'rgt' || d.key == 'pgt');
+        const {'rg', 'pg', 'rgt', 'pgt', 'rq', 'pq'}.contains(d.key);
     final signed = isGrowth || d.unit == 'dir' || d.unit == 'tone';
     final color = signed && v != null && (v != 0 || isGrowth)
         ? (v >= 0 ? gainColor : lossColor)

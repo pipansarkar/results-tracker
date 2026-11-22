@@ -425,3 +425,34 @@ def test_call_info():
     assert info["cred"] == 67
     cut = gd.call_info([{**calls[1], "guidanceDiff": [{"direction": "raised"}, {"direction": "cut"}]}], [])
     assert cut["gDir"] == -1 and "cred" not in cut
+
+
+def test_quarter_stats():
+    import metrics
+    qs = [
+        {"period": "Q2FY27", "endDate": "2026-09-30", "revenue": 120, "pat": 12, "ebitda": 24},
+        {"period": "Q1FY27", "endDate": "2026-06-30", "revenue": 110, "pat": 10},
+        {"period": "Q4FY26", "endDate": "2026-03-31", "revenue": 105, "pat": 9},
+        {"period": "Q3FY26", "endDate": "2025-12-31", "revenue": 102, "pat": 8},
+        {"period": "Q2FY26", "endDate": "2025-09-30", "revenue": 100, "pat": 10},
+    ]
+    s = metrics.quarter_stats(qs)
+    assert [x["q"] for x in s] == ["Q2FY27", "Q1FY27", "Q4FY26", "Q3FY26"]
+    assert s[0]["rg"] == 20 and s[0]["pg"] == 20 and s[0]["em"] == 20 and s[0]["nm"] == 10
+    assert round(s[0]["rq"], 1) == 9.1 and "rg" not in s[1]
+    gap = metrics.quarter_stats([qs[0], qs[2]])
+    assert "rq" not in gap[0]
+
+
+def test_year_stats():
+    import metrics
+    qs = []
+    for fy, base in ((27, None), (26, 120), (25, 100)):
+        for qn in (4, 3, 2, 1):
+            if fy == 27 and qn > 2:
+                continue
+            qs.append({"period": f"Q{qn}FY{fy}", "revenue": base or 50, "pat": (base or 50) / 10, "ebitda": 5})
+    ys = metrics.year_stats(qs)
+    assert [y["q"] for y in ys] == ["FY26", "FY25"]  # FY27 incomplete
+    assert ys[0]["r"] == 480 and ys[0]["rg"] == 20 and ys[0]["nm"] == 10
+    assert "rg" not in ys[1]
