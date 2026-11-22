@@ -56,6 +56,8 @@ UNIVERSE_REFRESH_DAYS = 7
 # don't have it yet, until the whole market is done. Fully automatic.
 BACKFILL_MINUTES = float(os.environ.get("BACKFILL_MINUTES", "12"))
 HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
+# Concall summaries: time budget per run (backlog uses Flash-Lite).
+SUMMARY_MINUTES = float(os.environ.get("SUMMARY_MINUTES", "12"))
 
 
 def _pkey(label: str):
@@ -818,9 +820,12 @@ class Pipeline:
         # Nifty 500 first, newest first.
         self.queue.sort(key=lambda q: q["filed"], reverse=True)
         self.queue.sort(key=lambda q: not q.get("n500"))  # stable: keeps newest-first within groups
+        import time as _t
+        deadline = _t.time() + SUMMARY_MINUTES * 60
         done = 0
         failures_in_a_row = 0
-        while self.queue and done < self.max_summaries and failures_in_a_row < 5:
+        while (self.queue and done < self.max_summaries and failures_in_a_row < 5
+               and _t.time() < deadline):
             item = self.queue[0]
             sym, url = item["symbol"], item["url"]
             if sym not in self.universe:
@@ -844,7 +849,8 @@ class Pipeline:
                            if _pkey(c.get("period", "")) < _pkey(period)]
                 prev = max(earlier, key=lambda c: _pkey(c["period"])) if earlier else None
                 result = summarise(text, name=self.universe[sym]["name"], symbol=sym,
-                                   period=period, previous=prev)
+                                   period=period, previous=prev,
+                                   lite=filed < self.today - timedelta(days=3))
             except QuotaExceeded:
                 log.warning("Gemini quota reached; %d transcripts left for next run", len(self.queue))
                 break

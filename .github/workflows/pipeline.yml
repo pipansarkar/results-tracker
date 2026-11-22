@@ -27,7 +27,7 @@ jobs:
   run:
     runs-on: ubuntu-latest
     # Normal runs ~10 min; the one-off --backfill-all run can take hours.
-    timeout-minutes: ${{ contains(github.event.inputs.args, '--backfill-all') && 350 || 45 }}
+    timeout-minutes: ${{ contains(github.event.inputs.args, '--backfill-all') && 350 || 55 }}
     defaults:
       run:
         working-directory: backend
@@ -46,6 +46,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Minutes per run spent loading history until every stock has it.
           BACKFILL_MINUTES: "25"
+          # Concall summaries per run: up to 80 within 12 minutes.
+          MAX_SUMMARIES: "80"
+          SUMMARY_MINUTES: "12"
           EXTRA_ARGS: ${{ github.event.inputs.args }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [[ "$EXTRA_ARGS" != *--dry-run* ]]; then

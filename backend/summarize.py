@@ -158,9 +158,14 @@ Transcript:
 ---"""
 
 
+_lite: Optional[str] = None
+
+
 def summarise(text: str, *, name: str, symbol: str, period: str,
               previous: Optional[Dict[str, Any]] = None,
-              api_key: Optional[str] = None) -> Dict[str, Any]:
+              api_key: Optional[str] = None, lite: bool = False) -> Dict[str, Any]:
+    """lite=True uses Flash-Lite (faster, larger free quota) - used for the
+    backlog of older calls; fresh calls use the full Flash model."""
     from google import genai
     from google.genai import types
 
@@ -181,8 +186,17 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     client = genai.Client(api_key=key)
     prompt = PROMPT.format(name=name, symbol=symbol, period=period,
                            previous=prev, transcript=text[:MAX_CHARS])
-    model = resolved_model(client)
-    tried_lite = False
+    global _lite
+    if lite and not MODEL:
+        if _lite is None:
+            try:
+                _lite = pick_model(client, lite=True)
+            except QuotaExceeded:
+                _lite = ""
+        model = _lite or resolved_model(client)
+    else:
+        model = resolved_model(client)
+    tried_lite = lite
     for attempt in range(5):
         try:
             resp = client.models.generate_content(
