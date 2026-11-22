@@ -21,7 +21,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 28
     defaults:
       run:
         working-directory: backend
@@ -38,6 +38,8 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Stocks whose 3-year history is loaded per run (~13 s each).
+          BACKFILL_PER_RUN: "40"
           EXTRA_ARGS: ${{ github.event.inputs.args }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [[ "$EXTRA_ARGS" != *--dry-run* ]]; then
