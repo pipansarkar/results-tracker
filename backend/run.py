@@ -191,7 +191,8 @@ class Pipeline:
         for rank, s in enumerate(ranked, 1):
             extra = n500.get(s, {})
             uni[s] = {"symbol": s, "name": extra.get("name") or eq[s]["name"],
-                      "sector": extra.get("sector", ""), "n500": "1" if s in n500 else "",
+                      "sector": extra.get("sector") or self.state.get("aiSectors", {}).get(s, ""),
+                      "n500": "1" if s in n500 else "",
                       "mcap": round(caps[s]), "cap": _cap_class(rank)}
         self.universe = uni
         self.state["universeRefreshed"] = self.today.isoformat()
@@ -1036,7 +1037,74 @@ class Pipeline:
             items = [x for _, x in self.store.list(f"companies/{sym}/guidance")]
         info = gd.call_info(calls, items)
         self.store.set(f"companies/{sym}", {"callInfo": info}, merge=True)
+        if info.get("date") and self.state.setdefault("profiled", {}).get(sym) != info["date"]:
+            q = self.state.setdefault("profileQueue", [])
+            if sym not in q:
+                q.append(sym)  # rewrite "future potential" from the new call
         return info
+
+    def process_profiles(self, minutes: float = 4) -> None:
+        """'About', 'future potential' and sector for every company (Gemini
+        Flash-Lite, 8 companies per request). Biggest companies first; a
+        company is redone when a newer concall has been summarised."""
+        import company_profile as cp
+        import time as _t
+        from summarize import QuotaExceeded
+
+        if not os.environ.get("GEMINI_API_KEY"):
+            return
+        done = self.state.setdefault("profiled", {})
+        queue = [s for s in self.state.get("profileQueue", []) if s in self.universe]
+        fresh = sorted((s for s in self.universe if s not in done and s not in queue),
+                       key=lambda s: -(self.universe[s].get("mcap") or 0))
+        sectors = sorted({u["sector"] for u in self.universe.values() if u.get("sector")}) or [
+            "Financial Services", "Information Technology", "Healthcare", "FMCG", "Capital Goods",
+            "Automobile and Auto Components", "Chemicals", "Construction", "Power", "Realty",
+            "Metals & Mining", "Oil Gas & Consumable Fuels", "Consumer Durables", "Services",
+            "Telecommunication", "Textiles", "Media Entertainment & Publication", "Consumer Services",
+            "Construction Materials", "Diversified", "Forest Materials"]
+        deadline = _t.time() + minutes * 60
+        n = 0
+        todo = queue + fresh
+        while todo and _t.time() < deadline:
+            batch, todo = todo[:cp.BATCH], todo[cp.BATCH:]
+            items, call_dates = [], {}
+            for sym in batch:
+                u = self.universe[sym]
+                notes = ""
+                if sym in queue:
+                    calls = [c for _, c in self.store.list(f"companies/{sym}/concalls")
+                             if c.get("v", 1) >= 2 and c.get("kind", "earnings") in ("earnings", "analyst")]
+                    if calls:
+                        last = max(calls, key=lambda c: c.get("date") or "")
+                        notes, call_dates[sym] = cp.concall_notes(last), last.get("date") or ""
+                items.append({"symbol": sym, "name": u["name"], "sector": u.get("sector"), "notes": notes})
+            try:
+                got = cp.describe(items, sectors)
+            except QuotaExceeded as e:
+                log.warning("profiles paused (quota): %s", str(e)[:120])
+                break
+            except Exception as e:
+                log.warning("profile batch failed: %s", e)
+                continue
+            for sym in batch:
+                prof = got.get(sym)
+                if not prof:
+                    continue
+                sector = self.universe[sym].get("sector") or prof["sector"]
+                if not self.universe[sym].get("sector") and prof["sector"]:
+                    self.universe[sym]["sector"] = prof["sector"]
+                    self.state.setdefault("aiSectors", {})[sym] = prof["sector"]
+                prof.update(v=cp.VERSION, at=self.today.isoformat(),
+                            basis="concall" if call_dates.get(sym) else "general")
+                self.store.set(f"companies/{sym}", {"profile": prof, "sector": sector}, merge=True)
+                done[sym] = call_dates.get(sym, "")
+                if sym in self.state.get("profileQueue", []):
+                    self.state["profileQueue"].remove(sym)
+                n += 1
+        if n:
+            log.info("profiles: %d written, %d still to do", n,
+                     len([s for s in self.universe if s not in done]) + len(self.state.get("profileQueue", [])))
 
     def _saved_screens(self, rows: List[Dict]) -> None:
         """Users' saved screens (screens/{id}): push 'screen_{id}' when a
@@ -1510,6 +1578,12 @@ def main() -> None:
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
+        if not symbols:
+            try:
+                pipe.process_profiles(float(os.environ.get("PROFILE_MINUTES", "4")))
+                pipe.sync_company_list()  # sectors filled in by profiles
+            except Exception as e:
+                log.warning("profiles failed: %s", e)
         if not symbols:
             try:  # after summaries, so the day's concall/guidance filters are current
                 first = pipe.state.get("screenerV") != 3  # one-off rebuild adding guidance fields

@@ -165,6 +165,16 @@ class SeedRepository implements Repository {
         name: name,
         sector: sector,
         quarters: quarters,
+        profile: CompanyProfile(
+          about:
+              '[Sample] $name is a leading Indian $sector company serving '
+              'customers across India and abroad.',
+          potential:
+              '[Sample] Capacity expansion and new products are expected to '
+              'drive growth over the next two years.',
+          risk: '[Sample] A slowdown in demand could delay the expansion.',
+          industry: sector,
+        ),
         dividends: [
           Dividend(
             today.subtract(const Duration(days: 60)),

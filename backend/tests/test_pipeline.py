@@ -456,3 +456,35 @@ def test_year_stats():
     assert [y["q"] for y in ys] == ["FY26", "FY25"]  # FY27 incomplete
     assert ys[0]["r"] == 480 and ys[0]["rg"] == 20 and ys[0]["nm"] == 10
     assert "rg" not in ys[1]
+
+
+def test_company_profile_parsing(monkeypatch):
+    import json as _json
+    import company_profile as cp
+    from google import genai
+
+    class _Resp:
+        text = _json.dumps([
+            {"symbol": "abc", "about": " Makes pumps. ", "potential": "Exports.", "risk": "Steel prices.",
+             "sector": "capital goods", "industry": "Pumps", "known": True},
+            {"symbol": "XYZ", "about": "A company.", "potential": "Made up", "risk": "x",
+             "sector": "Nonsense", "industry": "?", "known": False},
+            {"symbol": "OTHER", "about": "not asked", "potential": "", "sector": "", "industry": "", "known": True},
+        ])
+
+    class _Models:
+        def generate_content(self, **kw):
+            assert "CONCALL NOTES: capacity doubling" in kw["contents"]
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw):
+            self.models = _Models()
+
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setattr(cp, "_model", "flash-lite")
+    out = cp.describe([{"symbol": "ABC", "name": "Abc Ltd", "notes": "capacity doubling"},
+                       {"symbol": "XYZ", "name": "Xyz Ltd"}], ["Capital Goods", "FMCG"], api_key="k")
+    assert set(out) == {"ABC", "XYZ"}
+    assert out["ABC"]["about"] == "Makes pumps." and out["ABC"]["sector"] == "Capital Goods"
+    assert out["XYZ"]["sector"] == "" and out["XYZ"]["potential"] == "" and not out["XYZ"]["known"]

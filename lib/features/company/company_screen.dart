@@ -75,7 +75,20 @@ class CompanyScreen extends ConsumerWidget {
             company.when(
               loading: () => loading,
               error: asyncError,
-              data: (c) => c == null || c.quarters.isEmpty
+              data: (c) => c != null && c.quarters.isEmpty && c.profile != null
+                  ? ListView(
+                      children: [
+                        AboutCompany(c),
+                        const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text(
+                            'Results for this company are still loading. '
+                            'History for all NSE stocks fills in automatically.',
+                          ),
+                        ),
+                      ],
+                    )
+                  : c == null || c.quarters.isEmpty
                   ? const EmptyState(
                       icon: Icons.hourglass_top,
                       message:
@@ -216,6 +229,7 @@ class _ResultsTabState extends State<_ResultsTab> {
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         const SampleDataBanner(),
+        if (widget.c.profile != null) AboutCompany(widget.c),
         // Quarter selector
         SizedBox(
           height: 52,
@@ -1586,6 +1600,125 @@ class _PromiseTile extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "About the company": what it does, future potential, key risk, sector.
+class AboutCompany extends StatefulWidget {
+  const AboutCompany(this.c, {super.key});
+  final Company c;
+
+  @override
+  State<AboutCompany> createState() => _AboutCompanyState();
+}
+
+class _AboutCompanyState extends State<AboutCompany> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.c.profile!;
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    Widget part(IconData icon, String title, String text, Color color) =>
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: t.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(text, style: const TextStyle(height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    final tags = [
+      if (widget.c.sector.isNotEmpty) widget.c.sector,
+      if (p.industry.isNotEmpty && p.industry != widget.c.sector) p.industry,
+    ];
+    return _Section(
+      title: 'About the company',
+      trailing: p.potential.isEmpty && p.risk.isEmpty
+          ? null
+          : TextButton(
+              onPressed: () => setState(() => _open = !_open),
+              child: Text(_open ? 'Less' : 'Future potential'),
+            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final tag in tags)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        tag,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          Text(
+            p.about,
+            style: const TextStyle(height: 1.4),
+            maxLines: _open ? null : 3,
+            overflow: _open ? null : TextOverflow.ellipsis,
+          ),
+          if (_open && p.potential.isNotEmpty)
+            part(Icons.trending_up, 'Future potential', p.potential, gainColor),
+          if (_open && p.risk.isNotEmpty)
+            part(
+              Icons.warning_amber_rounded,
+              'Key risk',
+              p.risk,
+              Colors.orange,
+            ),
+          if (_open)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                p.basis == 'concall'
+                    ? 'AI summary based on the latest concall. Not investment advice.'
+                    : 'AI summary from public information. Not investment advice.',
+                style: t.bodySmall,
+              ),
+            ),
         ],
       ),
     );

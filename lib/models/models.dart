@@ -193,6 +193,35 @@ class Credibility {
         );
 }
 
+/// AI-written overview: what the company does and where growth may come from.
+class CompanyProfile {
+  final String about, potential, risk, industry;
+
+  /// 'concall' when based on the latest summarised call, else 'general'.
+  final String basis;
+  final bool known;
+  const CompanyProfile({
+    required this.about,
+    this.potential = '',
+    this.risk = '',
+    this.industry = '',
+    this.basis = 'general',
+    this.known = true,
+  });
+
+  static CompanyProfile? fromMap(Map<String, dynamic>? m) {
+    if (m == null || (m['about'] as String? ?? '').isEmpty) return null;
+    return CompanyProfile(
+      about: m['about'] as String,
+      potential: m['potential'] as String? ?? '',
+      risk: m['risk'] as String? ?? '',
+      industry: m['industry'] as String? ?? '',
+      basis: m['basis'] as String? ?? 'general',
+      known: m['known'] as bool? ?? true,
+    );
+  }
+}
+
 class Company {
   final String symbol;
   final String name;
@@ -208,6 +237,7 @@ class Company {
   /// Dividends (newest first) and other corporate actions, last ~3 years.
   final List<Dividend> dividends;
   final List<CorpAction> corpActions;
+  final CompanyProfile? profile;
 
   const Company({
     required this.symbol,
@@ -218,6 +248,7 @@ class Company {
     this.holding = const [],
     this.dividends = const [],
     this.corpActions = const [],
+    this.profile,
   });
 
   QuarterResult? get latest => quarters.isEmpty ? null : quarters.first;
@@ -255,6 +286,9 @@ class Company {
       ],
       credibility: Credibility.fromMap(
         (m['credibility'] as Map?)?.cast<String, dynamic>(),
+      ),
+      profile: CompanyProfile.fromMap(
+        (m['profile'] as Map?)?.cast<String, dynamic>(),
       ),
     );
   }

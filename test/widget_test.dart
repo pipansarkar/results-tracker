@@ -303,10 +303,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Key ratios'), findsOneWidget);
     expect(find.text('P/E'), findsOneWidget);
+    expect(find.text('About the company'), findsOneWidget);
+    await tester.tap(find.text('Future potential'));
+    await tester.pumpAndSettle();
+    expect(find.text('Key risk'), findsOneWidget);
     expect(find.text('ROE'), findsOneWidget);
   });
 
-  testWidgets('Events tab, IPOs, order wins and multiple watchlists', (tester) async {
+  testWidgets('Events tab, IPOs, order wins and multiple watchlists', (
+    tester,
+  ) async {
     await pumpApp(tester);
     // Company: Events tab with order book, orders, ratings, dividends.
     await tester.tap(find.text('HDFC Bank'));
