@@ -254,3 +254,11 @@ def test_pick_model_prefers_newest_stable_flash():
 
     assert summarize.pick_model(Client) == "gemini-3.8-flash"
     assert summarize.pick_model(Client, lite=True) == "gemini-3.8-flash-lite"
+
+
+def test_zero_owners_profit_falls_back_to_total():
+    xml = (FIX / "sample_results.xml").read_text().replace(
+        '<in-capmkt:ProfitOrLossAttributableToOwnersOfParent contextRef="OneD" unitRef="INR" decimals="-5">1450000000',
+        '<in-capmkt:ProfitOrLossAttributableToOwnersOfParent contextRef="OneD" unitRef="INR" decimals="-5">0')
+    cur = parse_xbrl(xml.encode())[0]
+    assert cur.pat == 150.0  # total profit, not 0

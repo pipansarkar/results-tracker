@@ -216,9 +216,12 @@ def parse_xbrl(content: bytes) -> List[Quarter]:
             ebitda = pbt + fin + dep - oth
         else:
             ebitda = None
+        total_pat = pick(PAT)
         pat = pick(PAT_OWNERS) if consolidated else None
-        if pat is None:
-            pat = pick(PAT)
+        # Some filers put 0 in "attributable to owners" (no minority
+        # interest); fall back to total profit in that case.
+        if pat is None or (pat == 0 and total_pat):
+            pat = total_pat
         eps = pick(EPS)
 
         def total(names: List[str]) -> Optional[float]:

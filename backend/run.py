@@ -43,7 +43,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 HERE = Path(__file__).parent
 UNIVERSE_CSV = HERE / "companies.csv"
 STATE = "pipeline_state/main"
-SCHEMA = 2  # bump to re-parse all filings (2 = detailed P&L + segments)
+SCHEMA = 3  # bump to re-parse all filings (3 = detailed P&L, segments, owners-PAT fix)
 MAX_PROCESSED = 8000
 
 CAL_PAST_DAYS = 60        # calendar keeps / back-fills this many past days
