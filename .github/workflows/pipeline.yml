@@ -40,7 +40,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EXTRA_ARGS: ${{ github.event.inputs.args }}
         run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [[ "$EXTRA_ARGS" != *--dry-run* ]]; then
             echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set yet; skipping run."
             exit 0
           fi
