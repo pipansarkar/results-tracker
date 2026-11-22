@@ -260,8 +260,9 @@ class _Trend extends StatelessWidget {
                     reservedSize: 22,
                     getTitlesWidget: (v, m) {
                       final i = v.toInt();
-                      if (i < 0 || i >= h.length || v != i.toDouble())
+                      if (i < 0 || i >= h.length || v != i.toDouble()) {
                         return const SizedBox.shrink();
+                      }
                       return Text(
                         h[i].label,
                         style: const TextStyle(fontSize: 10),
@@ -387,7 +388,7 @@ class ActivityTile extends StatelessWidget {
       _ => a.kind,
     };
     final parts = <String>[
-      if (company != null) company!,
+      ?company,
       kind,
       if (a.isDeal) a.side == 'buy' ? 'Bought' : 'Sold',
       if (a.valueCr != null) '₹${a.valueCr!.toStringAsFixed(1)} Cr',

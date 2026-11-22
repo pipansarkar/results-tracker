@@ -45,7 +45,10 @@ def parse_shp(content: bytes) -> Dict[str, float]:
             key = _MEMBERS.get(mem[0])
             if key and text:
                 try:
-                    out[key] = round(float(text) * 100, 2)
+                    v = float(text)
+                    # Newer filings store fractions (0.75); older ones
+                    # store percentages (75). Normalise to percent.
+                    out[key] = round(v * 100 if v <= 1.0 else v, 2)
                 except ValueError:
                     pass
         elif name.startswith("WhetherAnySharesHeldByPromotersAreEncumbered") and text:

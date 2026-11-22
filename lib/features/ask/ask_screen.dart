@@ -96,10 +96,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       b.writeln(' Highlights: ${en.highlights.join(' | ')}');
       b.writeln(' Guidance: ${en.guidance.join(' | ')}');
       b.writeln(' Q&A: ${en.qa.map((x) => '${x.q} -> ${x.a}').join(' | ')}');
-      if (en.redFlags.isNotEmpty)
+      if (en.redFlags.isNotEmpty) {
         b.writeln(' Red flags: ${en.redFlags.join(' | ')}');
-      if (call.changes != null)
+      }
+      if (call.changes != null) {
         b.writeln(' Changes vs previous call: ${call.changes!.summary}');
+      }
     }
     if (guidance.isNotEmpty) {
       b.writeln('GUIDANCE TRACKER:');
@@ -184,8 +186,9 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         if (mounted) setState(() {});
         _scrollDown();
       }
-      if (reply.text.isEmpty)
+      if (reply.text.isEmpty) {
         reply.text = 'No answer came back. Please try again.';
+      }
     } catch (e) {
       final msg = e.toString();
       setState(

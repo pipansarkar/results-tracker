@@ -340,3 +340,12 @@ def test_redflags():
     assert redflags.classify("", "Resignation of Statutory Auditor")["type"] == "auditor_exit"
     assert redflags.classify("", "CRISIL downgraded the credit rating to BBB")["type"] == "rating_down"
     assert redflags.classify("Outcome of Board Meeting", "Approved results") is None
+
+
+def test_shp_older_filings_store_percentages():
+    import ownership
+    xml = """<x:xbrl xmlns:x="http://www.xbrl.org/2003/instance" xmlns:d="http://xbrl.org/2006/xbrldi" xmlns:c="http://example/c">
+    <x:context id="P"><x:entity><x:segment><d:explicitMember dimension="c:A">c:ShareholdingOfPromoterAndPromoterGroupMember</d:explicitMember></x:segment></x:entity></x:context>
+    <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="P">75</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
+    </x:xbrl>"""
+    assert ownership.parse_shp(xml.encode())["promoter"] == 75.0

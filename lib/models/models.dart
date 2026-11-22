@@ -790,17 +790,24 @@ class HoldingPoint {
     this.pledge,
   });
 
-  factory HoldingPoint.fromMap(Map<String, dynamic> m) => HoldingPoint(
-    date: DateTime.parse(m['date'] as String),
-    promoter: _d(m['promoter']),
-    fii: _d(m['fii']),
-    dii: _d(m['dii']),
-    mf: _d(m['mf']),
-    insurance: _d(m['insurance']),
-    retail: _d(m['retail']),
-    others: _d(m['others']),
-    pledge: _d(m['pledge']),
-  );
+  factory HoldingPoint.fromMap(Map<String, dynamic> m) {
+    // Guard against percentages stored ×100 by an older pipeline version.
+    final scale = (_d(m['promoter']) ?? 0) > 100 || (_d(m['public']) ?? 0) > 100
+        ? 100.0
+        : 1.0;
+    double? p(String k) => _d(m[k]) == null ? null : _d(m[k])! / scale;
+    return HoldingPoint(
+      date: DateTime.parse(m['date'] as String),
+      promoter: p('promoter'),
+      fii: p('fii'),
+      dii: p('dii'),
+      mf: p('mf'),
+      insurance: p('insurance'),
+      retail: p('retail'),
+      others: p('others'),
+      pledge: _d(m['pledge']),
+    );
+  }
 
   String get label {
     const m = ['Mar', 'Jun', 'Sep', 'Dec'];
