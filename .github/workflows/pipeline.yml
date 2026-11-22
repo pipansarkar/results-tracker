@@ -2,10 +2,11 @@ name: results-pipeline
 
 on:
   schedule:
-    # GitHub cron is in UTC. 03:00-18:30 UTC = 08:30-00:00 IST, every 30 min.
-    - cron: "*/30 3-18 * * *"
-    # 02:30 UTC = 08:00 IST: "concall today" / "results today" alerts.
-    - cron: "30 2 * * *"
+    # GitHub cron is in UTC: 03:07-18:37 UTC = 08:37-00:07 IST, every 30 min.
+    # Off the :00/:30 marks, where GitHub often delays or drops runs.
+    - cron: "7,37 3-18 * * *"
+    # 02:23 UTC = 07:53 IST: "concall today" / "results today" alerts.
+    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
       args:
@@ -47,7 +48,7 @@ jobs:
             echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set yet; skipping run."
             exit 0
           fi
-          if [ "${{ github.event.schedule }}" = "30 2 * * *" ]; then
+          if [ "${{ github.event.schedule }}" = "23 2 * * *" ]; then
             python run.py --morning
           else
             python run.py $EXTRA_ARGS
