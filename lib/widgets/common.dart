@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -67,7 +68,7 @@ class SampleDataBanner extends ConsumerWidget {
       color: scheme.tertiaryContainer,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Text(
-        'Sample data: connect Firebase to see live NSE results',
+        tr('Sample data: connect Firebase to see live NSE results'),
         style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
       ),
     );
@@ -143,7 +144,7 @@ class StockSearchBar extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
     child: SearchBar(
-      hintText: 'Search any NSE stock by name or symbol',
+      hintText: tr('Search any NSE stock by name or symbol'),
       leading: const Icon(Icons.search),
       elevation: const WidgetStatePropertyAll(0),
       onTap: () => GoRouter.of(context).push('/search'),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -51,8 +52,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       appBar: AppBar(
         title: TextField(
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Search company or NSE symbol',
+          decoration: InputDecoration(
+            hintText: tr('Search company or NSE symbol'),
             border: InputBorder.none,
           ),
           onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
@@ -64,9 +65,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         data: (all) {
           final list = _rank(all, _q);
           if (list.isEmpty) {
-            return const EmptyState(
+            return EmptyState(
               icon: Icons.search_off,
-              message: 'No matching company.',
+              message: tr('No matching company.'),
             );
           }
           return ListView.builder(

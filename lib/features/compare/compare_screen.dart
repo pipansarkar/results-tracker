@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -54,24 +55,24 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Compare'),
+        title: Text(tr('Compare')),
         actions: [
           if (_symbols.length < 4)
             TextButton.icon(
               onPressed: _add,
               icon: const Icon(Icons.add),
-              label: const Text('Add stock'),
+              label: Text(tr('Add stock')),
             ),
         ],
       ),
       body: _symbols.isEmpty
           ? EmptyState(
               icon: Icons.compare_arrows,
-              message: 'Add 2 to 4 stocks to compare them side by side.',
+              message: tr('Add 2 to 4 stocks to compare them side by side.'),
               action: FilledButton.icon(
                 onPressed: _add,
                 icon: const Icon(Icons.add),
-                label: const Text('Add stock'),
+                label: Text(tr('Add stock')),
               ),
             )
           : ListView(
@@ -100,12 +101,12 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
                   ),
                 ),
                 if (_symbols.length == 1)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('Add at least one more stock to compare.'),
+                    child: Text(tr('Add at least one more stock to compare.')),
                   ),
                 _Card(
-                  title: 'Key numbers',
+                  title: tr('Key numbers'),
                   subtitle: 'Best value in each row is highlighted',
                   child: screener.isLoading
                       ? const Padding(
@@ -115,7 +116,7 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
                       : _Table(symbols: _symbols, metrics: metrics),
                 ),
                 _Card(
-                  title: 'Revenue growth',
+                  title: tr('Revenue growth'),
                   subtitle: 'Quarterly revenue, oldest of the 8 quarters = 100',
                   child: _IndexedChart(
                     symbols: _symbols,
@@ -123,12 +124,12 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
                   ),
                 ),
                 _Card(
-                  title: 'Profit growth',
+                  title: tr('Profit growth'),
                   subtitle: 'Quarterly profit, oldest of the 8 quarters = 100',
                   child: _IndexedChart(symbols: _symbols, field: (q) => q.pat),
                 ),
                 _Card(
-                  title: 'EBITDA margin',
+                  title: tr('EBITDA margin'),
                   subtitle: 'Per quarter, %',
                   child: _IndexedChart(
                     symbols: _symbols,
@@ -357,9 +358,9 @@ class _IndexedChart extends ConsumerWidget {
       );
     }
     if (lines.isEmpty) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.all(16),
-        child: Text('Quarterly history not loaded yet for these stocks.'),
+        child: Text(tr('Quarterly history not loaded yet for these stocks.')),
       );
     }
     return SizedBox(

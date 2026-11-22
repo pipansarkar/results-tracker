@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -48,12 +49,15 @@ class _NewsTabState extends ConsumerState<NewsTab> {
             child: SegmentedButton<_Source>(
               showSelectedIcon: false,
               style: const ButtonStyle(visualDensity: VisualDensity.compact),
-              segments: const [
-                ButtonSegment(value: _Source.all, label: Text('All')),
-                ButtonSegment(value: _Source.media, label: Text('In the news')),
+              segments: [
+                ButtonSegment(value: _Source.all, label: Text(tr('All'))),
+                ButtonSegment(
+                  value: _Source.media,
+                  label: Text(tr('In the news')),
+                ),
                 ButtonSegment(
                   value: _Source.exchange,
-                  label: Text('NSE filings'),
+                  label: Text(tr('NSE filings')),
                 ),
               ],
               selected: {_source},
@@ -162,6 +166,46 @@ class _NewsCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (n.flag != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        (n.severity == 'high'
+                                ? const Color(0xFFDC2626)
+                                : Colors.amber.shade800)
+                            .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 16,
+                        color: n.severity == 'high'
+                            ? const Color(0xFFDC2626)
+                            : Colors.amber.shade800,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Red flag: ${n.flag}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: n.severity == 'high'
+                              ? const Color(0xFFDC2626)
+                              : Colors.amber.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 n.title,
@@ -191,7 +235,7 @@ class _NewsCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'View filing',
+                      tr('View filing'),
                       style: TextStyle(color: scheme.primary, fontSize: 13),
                     ),
                   ],

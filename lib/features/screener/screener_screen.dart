@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -122,10 +123,10 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Screener'),
+        title: Text(tr('Screener')),
         actions: [
           PopupMenuButton<String>(
-            tooltip: 'Sort by',
+            tooltip: tr('Sort by'),
             icon: const Icon(Icons.sort),
             onSelected: (k) => setState(() {
               if (k == _sort) {
@@ -145,7 +146,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
             ],
           ),
           IconButton(
-            tooltip: 'Filters',
+            tooltip: tr('Filters'),
             icon: Badge(
               isLabelVisible: _filters.isNotEmpty || _sector != null || _n500,
               child: const Icon(Icons.tune),
@@ -169,7 +170,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: SearchBar(
-              hintText: 'Filter by name or symbol',
+              hintText: tr('Filter by name or symbol'),
               leading: const Icon(Icons.search),
               elevation: const WidgetStatePropertyAll(0),
               onChanged: (v) => setState(() => _q = v.trim()),
@@ -270,9 +271,9 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
                       ),
                     Expanded(
                       child: rows.isEmpty
-                          ? const EmptyState(
+                          ? EmptyState(
                               icon: Icons.filter_alt_off,
-                              message: 'No stocks match these filters.',
+                              message: tr('No stocks match these filters.'),
                             )
                           : ListView.builder(
                               padding: const EdgeInsets.only(bottom: 88),
@@ -549,21 +550,18 @@ class _FilterSheetState extends State<_FilterSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 children: [
                   Text(
-                    'Filters',
+                    tr('Filters'),
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
                   DropdownMenu<String?>(
                     initialSelection: _sector,
                     expandedInsets: EdgeInsets.zero,
-                    label: const Text('Sector'),
+                    label: Text(tr('Sector')),
                     enableFilter: true,
                     requestFocusOnTap: true,
                     dropdownMenuEntries: [
-                      const DropdownMenuEntry(
-                        value: null,
-                        label: 'All sectors',
-                      ),
+                      DropdownMenuEntry(value: null, label: tr('All sectors')),
                       for (final s in widget.sectors)
                         DropdownMenuEntry(value: s, label: s),
                     ],
@@ -571,7 +569,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Nifty 500 only'),
+                    title: Text(tr('Nifty 500 only')),
                     value: _n500,
                     onChanged: (v) => setState(() => _n500 = v),
                   ),
@@ -591,7 +589,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                         context,
                         const _FilterResult(null, false, {}),
                       ),
-                      child: const Text('Reset all'),
+                      child: Text(tr('Reset all')),
                     ),
                     const Spacer(),
                     FilledButton(
@@ -607,7 +605,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                           _FilterResult(_sector, _n500, f),
                         );
                       },
-                      child: const Text('Show results'),
+                      child: Text(tr('Show results')),
                     ),
                   ],
                 ),

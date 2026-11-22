@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,7 +8,7 @@ import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
 
-enum _Filter { all, results, concalls, meets }
+enum _Filter { all, results, concalls, meets, actions }
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -27,6 +28,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       _Filter.results => e.type == EventType.results,
       _Filter.concalls => e.type == EventType.concall,
       _Filter.meets => e.type == EventType.investorMeet,
+      _Filter.actions => e.type == EventType.corpAction,
     };
   }
 
@@ -49,17 +51,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Results Calendar'),
+          title: Text(tr('Results Calendar')),
           actions: [
             IconButton(
               icon: const Icon(Icons.search),
               onPressed: () => context.push('/search'),
             ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
             tabs: [
-              Tab(text: 'Upcoming'),
-              Tab(text: 'Past'),
+              Tab(text: tr('Upcoming')),
+              Tab(text: tr('Past')),
             ],
           ),
         ),
@@ -80,13 +82,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                           _Filter.results => 'Results',
                           _Filter.concalls => 'Concalls',
                           _Filter.meets => 'Investor meets',
+                          _Filter.actions => 'Dividends & actions',
                         }),
                         selected: _filter == f,
                         onSelected: (_) => setState(() => _filter = f),
                       ),
                     ),
                   FilterChip(
-                    label: const Text('Watchlist'),
+                    label: Text(tr('Watchlist')),
                     selected: _watchlistOnly,
                     onSelected: (v) => setState(() => _watchlistOnly = v),
                   ),
@@ -182,6 +185,12 @@ class _EventTile extends StatelessWidget {
         scheme.tertiaryContainer,
         scheme.onTertiaryContainer,
         'Investor meet',
+      ),
+      EventType.corpAction => (
+        Icons.card_giftcard,
+        scheme.surfaceContainerHighest,
+        scheme.onSurface,
+        'Corporate action',
       ),
     };
     final sym = Uri.encodeComponent(e.symbol);

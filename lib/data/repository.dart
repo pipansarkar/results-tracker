@@ -32,6 +32,15 @@ abstract class Repository {
 
   /// Ratios for every stock (a few screener/{n} docs).
   Future<List<StockMetrics>> screener();
+
+  /// Deals, ownership changes and red flags for one company (one doc).
+  Future<List<ActivityItem>> activity(String symbol);
+
+  /// Market-wide deals of the last few days (one doc).
+  Future<List<MarketDeal>> marketDeals();
+
+  /// Results-season scoreboard (one doc), or null before the season starts.
+  Future<Season?> season();
 }
 
 String dateId(DateTime d) =>

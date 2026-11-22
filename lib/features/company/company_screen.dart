@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +9,8 @@ import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
 import 'charts.dart';
+import 'financials_tab.dart';
+import 'ownership_tab.dart';
 import 'news_tab.dart';
 
 class CompanyScreen extends ConsumerWidget {
@@ -26,7 +29,7 @@ class CompanyScreen extends ConsumerWidget {
     final sector = company.value?.sector ?? lite?.sector ?? '';
 
     return DefaultTabController(
-      length: 4,
+      length: 6,
       child: Scaffold(
         appBar: AppBar(
           title: Column(
@@ -42,19 +45,29 @@ class CompanyScreen extends ConsumerWidget {
           ),
           actions: [
             IconButton(
-              tooltip: 'Compare with other stocks',
+              tooltip: tr('Ask AI about this company'),
+              icon: const Icon(Icons.auto_awesome),
+              onPressed: () =>
+                  context.push('/company/${Uri.encodeComponent(symbol)}/ask'),
+            ),
+            IconButton(
+              tooltip: tr('Compare with other stocks'),
               icon: const Icon(Icons.compare_arrows),
               onPressed: () =>
                   context.push('/compare?s=${Uri.encodeComponent(symbol)}'),
             ),
             WatchButton(symbol),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             tabs: [
-              Tab(text: 'Results'),
-              Tab(text: 'Concalls'),
-              Tab(text: 'Guidance'),
-              Tab(text: 'News'),
+              Tab(text: tr('Results')),
+              Tab(text: tr('Financials')),
+              Tab(text: tr('Ownership')),
+              Tab(text: tr('Concalls')),
+              Tab(text: tr('Guidance')),
+              Tab(text: tr('News')),
             ],
           ),
         ),
@@ -73,15 +86,36 @@ class CompanyScreen extends ConsumerWidget {
                     )
                   : _ResultsTab(c),
             ),
+            company.when(
+              loading: () => loading,
+              error: asyncError,
+              data: (c) => c == null
+                  ? EmptyState(
+                      icon: Icons.hourglass_top,
+                      message: tr('Financials are still loading.'),
+                    )
+                  : FinancialsTab(c),
+            ),
+            company.when(
+              loading: () => loading,
+              error: asyncError,
+              data: (c) => c == null
+                  ? EmptyState(
+                      icon: Icons.hourglass_top,
+                      message: tr('Ownership data is still loading.'),
+                    )
+                  : OwnershipTab(c),
+            ),
             _ConcallsTab(symbol),
             company.when(
               loading: () => loading,
               error: asyncError,
               data: (c) => c == null
-                  ? const EmptyState(
+                  ? EmptyState(
                       icon: Icons.flag_outlined,
-                      message:
-                          'Guidance appears after the first concall summary.',
+                      message: tr(
+                        'Guidance appears after the first concall summary.',
+                      ),
                     )
                   : _GuidanceTab(c),
             ),
@@ -196,7 +230,7 @@ class _ResultsTabState extends State<_ResultsTab> {
         _KeyRatios(widget.c.symbol),
         _Glance(q: q, prev: prev, ago: ago),
         _Section(
-          title: 'Trend',
+          title: tr('Trend'),
           child: Column(
             children: [
               SizedBox(
@@ -206,14 +240,20 @@ class _ResultsTabState extends State<_ResultsTab> {
                   style: const ButtonStyle(
                     visualDensity: VisualDensity.compact,
                   ),
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: _Metric.revenue,
-                      label: Text('Revenue'),
+                      label: Text(tr('Revenue')),
                     ),
-                    ButtonSegment(value: _Metric.ebitda, label: Text('EBITDA')),
-                    ButtonSegment(value: _Metric.profit, label: Text('Profit')),
-                    ButtonSegment(value: _Metric.eps, label: Text('EPS')),
+                    ButtonSegment(
+                      value: _Metric.ebitda,
+                      label: Text(tr('EBITDA')),
+                    ),
+                    ButtonSegment(
+                      value: _Metric.profit,
+                      label: Text(tr('Profit')),
+                    ),
+                    ButtonSegment(value: _Metric.eps, label: Text(tr('EPS'))),
                   ],
                   selected: {_metric},
                   onSelectionChanged: (v) => setState(() => _metric = v.first),
@@ -241,7 +281,7 @@ class _ResultsTabState extends State<_ResultsTab> {
           ),
         ),
         _Section(
-          title: 'Margins',
+          title: tr('Margins'),
           child: MarginLineChart(
             labels: last8.map((e) => e.period).toList(),
             ebitda: last8.map((e) => e.ebitdaMargin ?? 0).toList(),
@@ -249,7 +289,7 @@ class _ResultsTabState extends State<_ResultsTab> {
           ),
         ),
         _Section(
-          title: 'Profit & loss',
+          title: tr('Profit & loss'),
           trailing: Text(
             '₹ Cr · ${q.consolidated ? 'Consolidated' : 'Standalone'}',
             style: Theme.of(context).textTheme.bodySmall,
@@ -258,19 +298,20 @@ class _ResultsTabState extends State<_ResultsTab> {
         ),
         if (_costRows(q).isNotEmpty)
           _Section(
-            title: 'Where each ₹100 of revenue went',
+            title: tr('Where each ₹100 of revenue went'),
             child: _CostBreakdown(q),
           ),
         if (q.segments.isNotEmpty)
           _Section(
-            title: 'Revenue by segment',
+            title: tr('Revenue by segment'),
             trailing: Text(
               q.period,
               style: Theme.of(context).textTheme.bodySmall,
             ),
             child: _Segments(q, ago),
           ),
-        _Section(title: 'Quarterly history', child: _QuarterTable(qs)),
+        _Peers(widget.c),
+        _Section(title: tr('Quarterly history'), child: _QuarterTable(qs)),
         const Padding(
           padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
           child: Text(disclaimerText, style: TextStyle(fontSize: 11)),
@@ -307,9 +348,9 @@ class _KeyRatios extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final defs = _keys.map(metricDef).where((d) => d.get(m) != null).toList();
     return _Section(
-      title: 'Key ratios',
+      title: tr('Key ratios'),
       trailing: Text(
-        'TTM · price as of last close',
+        tr('TTM · price as of last close'),
         style: Theme.of(context).textTheme.bodySmall,
       ),
       child: LayoutBuilder(
@@ -359,6 +400,111 @@ class _KeyRatios extends ConsumerWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Same-sector companies by market cap, with key ratios.
+class _Peers extends ConsumerWidget {
+  const _Peers(this.c);
+  final Company c;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (c.sector.isEmpty) return const SizedBox.shrink();
+    final companies = ref.watch(companiesProvider).value ?? const [];
+    final metrics = {
+      for (final m
+          in ref.watch(screenerProvider).value ?? const <StockMetrics>[])
+        m.symbol: m,
+    };
+    final names = {for (final x in companies) x.symbol: x.name};
+    final peers =
+        companies
+            .where((x) => x.sector == c.sector && metrics[x.symbol] != null)
+            .map((x) => metrics[x.symbol]!)
+            .toList()
+          ..sort((a, b) => (b.marketCap ?? 0).compareTo(a.marketCap ?? 0));
+    var top = peers.take(6).toList();
+    if (!top.any((m) => m.symbol == c.symbol) && metrics[c.symbol] != null) {
+      top = [...top.take(5), metrics[c.symbol]!];
+    }
+    if (top.length < 2) return const SizedBox.shrink();
+    const keys = ['mc', 'pe', 'roe', 'rg', 'pg', 'npm'];
+    final head = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700);
+    return _Section(
+      title: 'Peers · ${c.sector}',
+      trailing: TextButton(
+        onPressed: () => context.push(
+          '/compare?s=${top.take(4).map((m) => Uri.encodeComponent(m.symbol)).join(',')}',
+        ),
+        child: Text(tr('Compare')),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columnSpacing: 14,
+          horizontalMargin: 0,
+          headingRowHeight: 32,
+          dataRowMinHeight: 32,
+          dataRowMaxHeight: 36,
+          showCheckboxColumn: false,
+          columns: [
+            DataColumn(label: Text(tr('Company'), style: head)),
+            for (final k in keys)
+              DataColumn(
+                label: Text(metricDef(k).short, style: head),
+                numeric: true,
+              ),
+          ],
+          rows: [
+            for (final m in top)
+              DataRow(
+                color: WidgetStatePropertyAll(
+                  m.symbol == c.symbol
+                      ? Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer.withValues(alpha: 0.4)
+                      : null,
+                ),
+                onSelectChanged: m.symbol == c.symbol
+                    ? null
+                    : (_) => context.push(
+                        '/company/${Uri.encodeComponent(m.symbol)}',
+                      ),
+                cells: [
+                  DataCell(
+                    SizedBox(
+                      width: 120,
+                      child: Text(
+                        names[m.symbol] ?? m.symbol,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                  for (final k in keys)
+                    DataCell(
+                      Text(
+                        k == 'rg' || k == 'pg'
+                            ? pct(metricDef(k).get(m))
+                            : metricValue(
+                                metricDef(k).get(m),
+                                metricDef(k).unit,
+                              ),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -446,12 +592,52 @@ class _Glance extends StatelessWidget {
                         ago?.patMargin,
                       ),
                     ),
+                    if (q.reaction != null)
+                      SizedBox(width: box.maxWidth, child: _ReactionTile(q)),
                   ],
                 );
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReactionTile extends StatelessWidget {
+  const _ReactionTile(this.q);
+  final QuarterResult q;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = q.reaction!;
+    final color = r >= 0 ? gainColor : lossColor;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(r >= 0 ? Icons.trending_up : Icons.trending_down, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              tr('Share price reaction to these results'),
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          Text(
+            '${r > 0 ? '+' : ''}${r.toStringAsFixed(2)}%',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -493,8 +679,8 @@ class _Kpi extends StatelessWidget {
           spacing: 4,
           runSpacing: 4,
           children: [
-            GrowthChip(pctChange(k.now, k.yBefore), label: 'YoY'),
-            GrowthChip(pctChange(k.now, k.qBefore), label: 'QoQ'),
+            GrowthChip(pctChange(k.now, k.yBefore), label: tr('YoY')),
+            GrowthChip(pctChange(k.now, k.qBefore), label: tr('QoQ')),
           ],
         ),
       ],
@@ -604,12 +790,12 @@ class _PnlTable extends StatelessWidget {
             label: Text(p?.period ?? 'Prev', style: head),
             numeric: true,
           ),
-          DataColumn(label: Text('QoQ', style: head), numeric: true),
+          DataColumn(label: Text(tr('QoQ'), style: head), numeric: true),
           DataColumn(
             label: Text(a?.period ?? 'Yr ago', style: head),
             numeric: true,
           ),
-          DataColumn(label: Text('YoY', style: head), numeric: true),
+          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
         ],
         rows: [
           for (final r in visible)
@@ -810,7 +996,7 @@ class _Segments extends StatelessWidget {
                     const SizedBox(width: 8),
                     GrowthChip(
                       pctChange(s.revenue, agoBy[s.name]),
-                      label: 'YoY',
+                      label: tr('YoY'),
                     ),
                   ],
                 ),
@@ -846,7 +1032,7 @@ class _Segments extends StatelessWidget {
           ),
         const SizedBox(height: 4),
         Text(
-          'Segment figures are before inter-segment eliminations.',
+          tr('Segment figures are before inter-segment eliminations.'),
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
@@ -875,14 +1061,15 @@ class _QuarterTable extends StatelessWidget {
         dataRowMinHeight: 30,
         dataRowMaxHeight: 34,
         columns: [
-          DataColumn(label: Text('Quarter', style: head)),
-          DataColumn(label: Text('Revenue', style: head), numeric: true),
-          DataColumn(label: Text('YoY', style: head), numeric: true),
-          DataColumn(label: Text('EBITDA', style: head), numeric: true),
-          DataColumn(label: Text('Margin', style: head), numeric: true),
-          DataColumn(label: Text('Profit', style: head), numeric: true),
-          DataColumn(label: Text('YoY', style: head), numeric: true),
-          DataColumn(label: Text('EPS', style: head), numeric: true),
+          DataColumn(label: Text(tr('Quarter'), style: head)),
+          DataColumn(label: Text(tr('Revenue'), style: head), numeric: true),
+          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
+          DataColumn(label: Text(tr('EBITDA'), style: head), numeric: true),
+          DataColumn(label: Text(tr('Margin'), style: head), numeric: true),
+          DataColumn(label: Text(tr('Profit'), style: head), numeric: true),
+          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
+          DataColumn(label: Text(tr('EPS'), style: head), numeric: true),
+          DataColumn(label: Text(tr('Price move'), style: head), numeric: true),
         ],
         rows: [
           for (var i = 0; i < quarters.length; i++)
@@ -903,6 +1090,22 @@ class _QuarterTable extends StatelessWidget {
                 DataCell(Text(n(quarters[i].pat))),
                 DataCell(_Delta(quarters[i].pat, yearAgo(i)?.pat, false)),
                 DataCell(Text(num2(quarters[i].eps))),
+                DataCell(
+                  Text(
+                    quarters[i].reaction == null
+                        ? '—'
+                        : pct(quarters[i].reaction),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: quarters[i].reaction == null
+                          ? null
+                          : (quarters[i].reaction! >= 0
+                                ? gainColor
+                                : lossColor),
+                    ),
+                  ),
+                ),
               ],
             ),
         ],
@@ -1086,7 +1289,7 @@ class _GuidanceTab extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Management credibility',
+                              tr('Management credibility'),
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 4),
@@ -1096,7 +1299,9 @@ class _GuidanceTab extends ConsumerWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Guidance given in past concalls compared with reported results.',
+                              tr(
+                                'Guidance given in past concalls compared with reported results.',
+                              ),
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -1106,11 +1311,14 @@ class _GuidanceTab extends ConsumerWidget {
                   ),
                 ),
               ),
+              _LatestGuidanceChanges(c.symbol),
               if (items.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.all(24),
                   child: Text(
-                    'No guidance tracked yet. It is extracted from concall transcripts.',
+                    tr(
+                      'No guidance tracked yet. It is extracted from concall transcripts.',
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -1142,6 +1350,96 @@ class _GuidanceTile extends StatelessWidget {
       trailing: Text(
         label,
         style: TextStyle(color: color, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+/// Guidance diff from the most recent concall vs the one before.
+class _LatestGuidanceChanges extends ConsumerWidget {
+  const _LatestGuidanceChanges(this.symbol);
+  final String symbol;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final calls = ref.watch(concallsProvider(symbol)).value ?? const [];
+    final latest = calls.where((c) => c.guidanceDiff.isNotEmpty).firstOrNull;
+    if (latest == null) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Guidance changes · ${latest.period} vs ${latest.previousPeriod ?? 'previous call'}',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            for (final g in latest.guidanceDiff) GuidanceChangeTile(g),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One raised / cut / reiterated / new / dropped guidance line.
+class GuidanceChangeTile extends StatelessWidget {
+  const GuidanceChangeTile(this.g, {super.key});
+  final GuidanceChange g;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, label) = switch (g.direction) {
+      'raised' => (Icons.arrow_upward, gainColor, 'Raised'),
+      'cut' => (Icons.arrow_downward, lossColor, 'Cut'),
+      'dropped' => (Icons.remove_circle_outline, lossColor, 'Dropped'),
+      'new' => (Icons.fiber_new_outlined, Colors.blue, 'New'),
+      _ => (Icons.check, Colors.grey, 'Reiterated'),
+    };
+    final from = g.before, to = g.now;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${g.label} · ${g.targetPeriod}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(switch (g.direction) {
+                  'new' => 'New target: ${to ?? ''}',
+                  'dropped' => 'Was ${from ?? ''}, no longer mentioned',
+                  _ => '${from ?? '—'}  →  ${to ?? '—'}',
+                }, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

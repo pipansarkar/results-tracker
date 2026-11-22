@@ -64,6 +64,18 @@ final metricsProvider = Provider.family<StockMetrics?, String>(
       .firstOrNull,
 );
 
+final activityProvider = FutureProvider.family<List<ActivityItem>, String>(
+  (ref, symbol) => ref.watch(repositoryProvider).activity(symbol),
+);
+
+final marketDealsProvider = FutureProvider<List<MarketDeal>>(
+  (ref) => ref.watch(repositoryProvider).marketDeals(),
+);
+
+final seasonProvider = FutureProvider<Season?>(
+  (ref) => ref.watch(repositoryProvider).season(),
+);
+
 final filingsProvider = FutureProvider.family<List<NewsItem>, String>(
   (ref, symbol) => ref.watch(repositoryProvider).filings(symbol),
 );

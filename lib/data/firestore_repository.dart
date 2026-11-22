@@ -104,4 +104,28 @@ class FirestoreRepository implements Repository {
           StockMetrics.fromMap(Map<String, dynamic>.from(e as Map)),
     ];
   }
+
+  @override
+  Future<List<ActivityItem>> activity(String symbol) async {
+    final doc = await _db.collection('activity').doc(symbol).get();
+    return [
+      for (final e in (doc.data()?['items'] as List? ?? []))
+        ActivityItem.fromMap(Map<String, dynamic>.from(e as Map)),
+    ]..sort((a, b) => b.date.compareTo(a.date));
+  }
+
+  @override
+  Future<List<MarketDeal>> marketDeals() async {
+    final doc = await _db.collection('deals').doc('latest').get();
+    return [
+      for (final e in (doc.data()?['items'] as List? ?? []))
+        MarketDeal.fromMap(Map<String, dynamic>.from(e as Map)),
+    ];
+  }
+
+  @override
+  Future<Season?> season() async {
+    final doc = await _db.collection('meta').doc('season').get();
+    return doc.data() == null ? null : Season.fromMap(doc.data()!);
+  }
 }

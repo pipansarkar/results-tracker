@@ -516,6 +516,26 @@ class Pipeline:
         self.state["corpActionsDate"] = self.today.isoformat()
         log.info("corporate actions: %d", n)
 
+    def process_ai_config(self) -> None:
+        """Once a day: publish the Gemini model names the app's Ask AI should
+        use (meta/config), so the app never calls a retired model."""
+        if self.state.get("aiConfigDate") == self.today.isoformat() or not os.environ.get("GEMINI_API_KEY"):
+            return
+        try:
+            from google import genai
+            import summarize
+            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+            cfg = {"aiModel": summarize.pick_model(client), "updatedAt": now_ist().isoformat()}
+            try:
+                cfg["aiModelLite"] = summarize.pick_model(client, lite=True)
+            except Exception:
+                pass
+            self.store.set("meta/config", cfg, merge=True)
+            self.state["aiConfigDate"] = self.today.isoformat()
+            log.info("ai config: %s", cfg)
+        except Exception as e:
+            log.warning("ai config failed: %s", e)
+
     def process_digest(self) -> None:
         """Evening summary push to everyone (topic 'digest'), once a day."""
         now = now_ist()
@@ -991,6 +1011,7 @@ def main() -> None:
             pipe.process_transcripts()
             pipe.flush_calendar()
         if not symbols:
+            pipe.process_ai_config()
             pipe.process_digest()
             now = now_ist()
             if (now.hour, now.minute) >= (7, 50):

@@ -117,6 +117,38 @@ class SeedRepository implements Repository {
             tax: _round(tax),
             netProfit: _round(net),
             dilutedEps: eps,
+            filedAt: end.add(Duration(days: 20 + rnd.nextInt(20), hours: 16)),
+            reaction: double.parse(
+              ((rnd.nextDouble() - 0.4) * 12).toStringAsFixed(2),
+            ),
+            bs: end.month == 9 || end.month == 3
+                ? {
+                    'fixedAssets': _round(revenue * 1.2),
+                    'cwip': _round(revenue * 0.1),
+                    'investments': _round(revenue * 0.5),
+                    'inventories': _round(revenue * 0.3),
+                    'receivables': _round(revenue * 0.4),
+                    'cash': _round(revenue * 0.2),
+                    'totalAssets': _round(revenue * 3.2),
+                    'equity': _round(revenue * 1.6),
+                    'borrowingsLong': _round(revenue * 0.4),
+                    'borrowingsShort': _round(revenue * 0.2),
+                    'payables': _round(revenue * 0.35),
+                  }
+                : const {},
+            cf: end.month == 9 || end.month == 3
+                ? {
+                    'months': end.month == 9 ? 6 : 12,
+                    'cfo': _round(ebitda * (end.month == 9 ? 1.6 : 3.4)),
+                    'cfi': _round(-revenue * 0.3),
+                    'cff': _round(-revenue * 0.15),
+                    'capex': _round(revenue * 0.25),
+                    'fcf': _round(
+                      ebitda * (end.month == 9 ? 1.6 : 3.4) - revenue * 0.25,
+                    ),
+                    'dividends': _round(pat * 0.5),
+                  }
+                : const {},
             segments: [
               Segment('Domestic', _round(revenue * 0.62)),
               Segment('International', _round(revenue * 0.31)),
@@ -133,6 +165,20 @@ class SeedRepository implements Repository {
         name: name,
         sector: sector,
         quarters: quarters,
+        holding: [
+          for (var k = 0; k < 6; k++)
+            HoldingPoint(
+              date: DateTime(latestEnd.year, latestEnd.month - 3 * k + 1, 0),
+              promoter: 50 + i % 20 - (k == 0 && i % 4 == 0 ? 1.2 : 0),
+              fii: 18 + (i % 7) - k * 0.4,
+              dii: 14 + (i % 5) + k * 0.3,
+              mf: 6 + (i % 4) + k * 0.2,
+              insurance: 4 + (i % 3) * 0.5,
+              retail: 12 - (i % 6) * 0.5,
+              others: 4,
+              pledge: i % 9 == 0 ? 3.5 + k * 0.5 : 0,
+            ),
+        ],
         credibility: Credibility(
           score: (met / (met + missed) * 100).round(),
           met: met,
@@ -293,6 +339,47 @@ class SeedRepository implements Repository {
       toneChange: tone == 'cautious'
           ? 'More cautious than last quarter'
           : 'Similar to last quarter',
+      previousPeriod: 'previous quarter',
+      changes: ConcallChanges(
+        summary:
+            '[Sample] Growth guidance trimmed; management more focused on margins than last call.',
+        newTopics: const [
+          '[Sample] Pricing pressure in export markets',
+          '[Sample] New capacity in the west',
+        ],
+        droppedTopics: const [
+          '[Sample] Large order pipeline (stressed last call, not mentioned now)',
+        ],
+        guidanceShifts: [
+          '[Sample] FY revenue growth cut from ${g + 3}% to ~$g%',
+          '[Sample] Margin band reiterated',
+        ],
+        toneShift: tone == 'cautious' ? 'More cautious' : 'Unchanged',
+        bn: '[নমুনা] বৃদ্ধির পূর্বাভাস কমানো হয়েছে; মার্জিনে বেশি জোর।',
+        hi: '[नमूना] ग्रोथ गाइडेंस घटाया गया; मार्जिन पर ज़्यादा ध्यान।',
+      ),
+      guidanceDiff: [
+        GuidanceChange(
+          label: 'Revenue growth',
+          targetPeriod: 'FY27',
+          direction: 'cut',
+          before: '${g + 3}%',
+          now: '$g%',
+        ),
+        const GuidanceChange(
+          label: 'EBITDA margin',
+          targetPeriod: 'FY27',
+          direction: 'reiterated',
+          before: '≥ 18%',
+          now: '≥ 18%',
+        ),
+        const GuidanceChange(
+          label: 'EBITDA margin',
+          targetPeriod: 'FY28',
+          direction: 'new',
+          now: '≥ 19%',
+        ),
+      ],
       summary: {
         'en': SummaryLang(
           highlights: [
@@ -523,5 +610,102 @@ class SeedRepository implements Repository {
       );
     }
     return out;
+  }
+
+  @override
+  Future<List<ActivityItem>> activity(String symbol) async {
+    final i = _universe.indexWhere((u) => u.$1 == symbol);
+    if (i < 0) return [];
+    final d = _now.subtract(Duration(days: 2 + i % 5));
+    return [
+      ActivityItem(
+        date: d,
+        kind: 'block',
+        who: '[Sample] Large Fund Ltd',
+        side: 'buy',
+        qty: 2500000,
+        price: 1200,
+        valueCr: 300,
+      ),
+      ActivityItem(
+        date: d.subtract(const Duration(days: 4)),
+        kind: 'sast',
+        who: '[Sample] Promoter Holdings Pvt Ltd',
+        side: 'sell',
+        holdingAfter: 48.6,
+        promoter: true,
+      ),
+      if (i % 3 == 0)
+        ActivityItem(
+          date: d.subtract(const Duration(days: 9)),
+          kind: 'flag',
+          text: 'Top management exit',
+          severity: 'high',
+          detail: '[Sample] Resignation of Chief Financial Officer',
+        ),
+      ActivityItem(
+        date: d.subtract(const Duration(days: 20)),
+        kind: 'holding',
+        text: '[Sample] FII holding up 1.20% to 19.40%',
+        severity: 'low',
+      ),
+    ];
+  }
+
+  @override
+  Future<List<MarketDeal>> marketDeals() async => [
+    for (final u in _universe.take(8))
+      MarketDeal(u.$1, u.$2, (await activity(u.$1)).first),
+  ];
+
+  @override
+  Future<Season?> season() async {
+    final metrics = await screener();
+    final q = _companies.values.first.quarters.first.period;
+    double share(Iterable<double?> v) {
+      final l = v.whereType<double>().toList();
+      return l.isEmpty ? 0 : l.where((x) => x > 0).length / l.length * 100;
+    }
+
+    final sorted = [...metrics]
+      ..sort((a, b) => (b.profitGrowth ?? 0).compareTo(a.profitGrowth ?? 0));
+    Map<String, dynamic> pick(StockMetrics m) => {
+      's': m.symbol,
+      'rg': m.revGrowth,
+      'pg': m.profitGrowth,
+      'mc': m.marketCap,
+    };
+    final bySector = <String, List<StockMetrics>>{};
+    for (final m in metrics) {
+      bySector.putIfAbsent(_companies[m.symbol]!.sector, () => []).add(m);
+    }
+    return Season(
+      season: q,
+      reported: metrics.length,
+      total: metrics.length + 5,
+      revGrewPct: share(metrics.map((m) => m.revGrowth)),
+      profitGrewPct: share(metrics.map((m) => m.profitGrowth)),
+      medianRevGrowth: 8.4,
+      medianProfitGrowth: 11.2,
+      sectors: [
+        for (final e in bySector.entries)
+          {
+            'sector': e.key,
+            'n': e.value.length,
+            'rg': e.value.first.revGrowth,
+            'pg': e.value.first.profitGrowth,
+          },
+      ],
+      topProfit: sorted.take(5).map(pick).toList(),
+      worstProfit: sorted.reversed.take(5).map(pick).toList(),
+      bestReaction: [
+        for (final m in sorted.take(3))
+          {'s': m.symbol, 'r': 6.5, 'pg': m.profitGrowth},
+      ],
+      worstReaction: [
+        for (final m in sorted.reversed.take(3))
+          {'s': m.symbol, 'r': -4.1, 'pg': m.profitGrowth},
+      ],
+    );
   }
 }

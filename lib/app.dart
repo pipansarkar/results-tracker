@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/i18n.dart';
+import 'data/providers.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme.dart';
+import 'features/ask/ask_screen.dart';
 import 'features/calendar/calendar_screen.dart';
 import 'features/company/company_screen.dart';
 import 'features/compare/compare_screen.dart';
 import 'features/concall/concall_screen.dart';
+import 'features/deals/deals_screen.dart';
 import 'features/screener/screener_screen.dart';
 import 'features/search/search_screen.dart';
+import 'features/season/season_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/today/today_screen.dart';
 import 'features/watchlist/watchlist_screen.dart';
@@ -59,6 +65,8 @@ GoRouter buildRouter() => GoRouter(
       builder: (_, s) =>
           SearchScreen(pick: s.uri.queryParameters['pick'] == '1'),
     ),
+    GoRoute(path: '/season', builder: (_, _) => const SeasonScreen()),
+    GoRoute(path: '/deals', builder: (_, _) => const DealsScreen()),
     GoRoute(
       path: '/compare',
       builder: (_, s) => CompareScreen(
@@ -72,6 +80,10 @@ GoRouter buildRouter() => GoRouter(
       path: '/company/:symbol',
       builder: (_, s) => CompanyScreen(symbol: s.pathParameters['symbol']!),
       routes: [
+        GoRoute(
+          path: 'ask',
+          builder: (_, s) => AskScreen(symbol: s.pathParameters['symbol']!),
+        ),
         GoRoute(
           path: 'concall/:period',
           builder: (_, s) => ConcallScreen(
@@ -95,49 +107,58 @@ class _Shell extends StatelessWidget {
       selectedIndex: shell.currentIndex,
       onDestinationSelected: (i) =>
           shell.goBranch(i, initialLocation: i == shell.currentIndex),
-      destinations: const [
+      destinations: [
         NavigationDestination(
           icon: Icon(Icons.today_outlined),
           selectedIcon: Icon(Icons.today),
-          label: 'Today',
+          label: tr('Today'),
         ),
         NavigationDestination(
           icon: Icon(Icons.calendar_month_outlined),
           selectedIcon: Icon(Icons.calendar_month),
-          label: 'Calendar',
+          label: tr('Calendar'),
         ),
         NavigationDestination(
           icon: Icon(Icons.filter_alt_outlined),
           selectedIcon: Icon(Icons.filter_alt),
-          label: 'Screener',
+          label: tr('Screener'),
         ),
         NavigationDestination(
           icon: Icon(Icons.star_border),
           selectedIcon: Icon(Icons.star),
-          label: 'Watchlist',
+          label: tr('Watchlist'),
         ),
-        NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+        NavigationDestination(icon: Icon(Icons.more_horiz), label: tr('More')),
       ],
     ),
   );
 }
 
-class ResultsTrackerApp extends StatefulWidget {
+class ResultsTrackerApp extends ConsumerStatefulWidget {
   const ResultsTrackerApp({super.key});
 
   @override
-  State<ResultsTrackerApp> createState() => _ResultsTrackerAppState();
+  ConsumerState<ResultsTrackerApp> createState() => _ResultsTrackerAppState();
 }
 
-class _ResultsTrackerAppState extends State<ResultsTrackerApp> {
+class _ResultsTrackerAppState extends ConsumerState<ResultsTrackerApp> {
   late final _router = buildRouter();
 
   @override
-  Widget build(BuildContext context) => MaterialApp.router(
-    title: 'Quarterly Results & Concall Tracker',
-    debugShowCheckedModeBanner: false,
-    theme: buildTheme(Brightness.light),
-    darkTheme: buildTheme(Brightness.dark),
-    routerConfig: _router,
-  );
+  Widget build(BuildContext context) {
+    // The language setting drives both the UI and concall summaries.
+    final lang = ref.watch(languageProvider);
+    appLang = lang;
+    return MaterialApp.router(
+      title: tr('Quarterly Results & Concall Tracker'),
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      routerConfig: _router,
+      // Re-key the tree so every screen re-reads its strings on change;
+      // the router keeps the current page.
+      builder: (context, child) =>
+          KeyedSubtree(key: ValueKey(lang), child: child!),
+    );
+  }
 }

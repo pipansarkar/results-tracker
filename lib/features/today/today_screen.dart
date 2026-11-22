@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -61,14 +62,15 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           ),
                         ),
                         FilterChip(
-                          label: const Text('Watchlist only'),
+                          label: Text(tr('Watchlist only')),
                           selected: _watchlistOnly,
                           onSelected: (v) => setState(() => _watchlistOnly = v),
                         ),
                       ],
                     ),
                   ),
-                  const SectionHeader('Results announced'),
+                  const _SeasonCard(),
+                  SectionHeader(tr('Results announced')),
                   ...feed.when(
                     loading: () => [
                       const Padding(
@@ -81,16 +83,16 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       final list = items.where((i) => keep(i.symbol)).toList();
                       if (list.isEmpty) {
                         return [
-                          const EmptyState(
+                          EmptyState(
                             icon: Icons.hourglass_empty,
-                            message: 'No results announced yet today.',
+                            message: tr('No results announced yet today.'),
                           ),
                         ];
                       }
                       return list.map((i) => _FeedCard(i)).toList();
                     },
                   ),
-                  const SectionHeader('Concalls today'),
+                  SectionHeader(tr('Concalls today')),
                   ...calendar.when(
                     loading: () => [const SizedBox.shrink()],
                     error: (e, s) => [asyncError(e, s)],
@@ -107,12 +109,12 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           .toList();
                       if (calls.isEmpty) {
                         return [
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 8,
                             ),
-                            child: Text('No concalls scheduled today.'),
+                            child: Text(tr('No concalls scheduled today.')),
                           ),
                         ];
                       }
@@ -190,6 +192,14 @@ class _FeedCard extends StatelessWidget {
                   Expanded(
                     child: _Metric('Net profit', crore(item.pat), item.patYoY),
                   ),
+                  if (item.reaction != null)
+                    Expanded(
+                      child: _Metric(
+                        'Share price',
+                        item.reaction! >= 0 ? 'Up' : 'Down',
+                        item.reaction,
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -213,7 +223,84 @@ class _Metric extends StatelessWidget {
       Text(label, style: Theme.of(context).textTheme.labelSmall),
       Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
       const SizedBox(height: 4),
-      GrowthChip(yoy, label: 'YoY'),
+      GrowthChip(yoy, label: tr('YoY')),
     ],
   );
+}
+
+/// Results-season snapshot + entry points to the scoreboard and deals.
+class _SeasonCard extends ConsumerWidget {
+  const _SeasonCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(seasonProvider).value;
+    final scheme = Theme.of(context).colorScheme;
+    Widget card(
+      IconData icon,
+      String title,
+      String sub,
+      String route, {
+      Color? color,
+    }) => Expanded(
+      child: Card(
+        margin: EdgeInsets.zero,
+        color: color,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => context.push(route),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 18),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  sub,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          card(
+            Icons.scoreboard_outlined,
+            s == null ? 'Results season' : '${s.season} season',
+            s == null
+                ? 'Scoreboard'
+                : '${s.reported} reported · ${s.profitGrewPct?.round() ?? '—'}% grew profit',
+            '/season',
+            color: scheme.primaryContainer.withValues(alpha: 0.4),
+          ),
+          const SizedBox(width: 8),
+          card(
+            Icons.handshake_outlined,
+            'Big deals',
+            'Bulk, block & stake changes',
+            '/deals',
+          ),
+        ],
+      ),
+    );
+  }
 }

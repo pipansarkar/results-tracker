@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,6 +7,7 @@ import '../../core/theme.dart';
 import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/common.dart';
+import '../company/company_screen.dart' show GuidanceChangeTile;
 
 class ConcallScreen extends ConsumerWidget {
   const ConcallScreen({super.key, required this.symbol, required this.period});
@@ -18,17 +20,18 @@ class ConcallScreen extends ConsumerWidget {
     final lang = ref.watch(languageProvider);
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text('$symbol · $period concall'),
-          bottom: const TabBar(
+          bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: 'Highlights'),
-              Tab(text: 'Guidance'),
-              Tab(text: 'Q&A'),
-              Tab(text: 'Red flags'),
+              Tab(text: tr('What changed')),
+              Tab(text: tr('Highlights')),
+              Tab(text: tr('Guidance')),
+              Tab(text: tr('Q&A')),
+              Tab(text: tr('Red flags')),
             ],
           ),
         ),
@@ -77,6 +80,7 @@ class ConcallScreen extends ConsumerWidget {
                 Expanded(
                   child: TabBarView(
                     children: [
+                      _Changes(c, lang),
                       _Bullets(s.highlights, Icons.bolt),
                       _Bullets(s.guidance, Icons.flag_outlined),
                       _QaList(s.qa),
@@ -159,9 +163,9 @@ class _QaList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (qa.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.forum_outlined,
-        message: 'No Q&A captured.',
+        message: tr('No Q&A captured.'),
       );
     }
     return ListView(
@@ -203,7 +207,7 @@ class _Footer extends StatelessWidget {
               width: double.infinity,
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.picture_as_pdf_outlined),
-                label: const Text('Open original transcript'),
+                label: Text(tr('Open original transcript')),
                 onPressed: () => launchUrl(
                   Uri.parse(url!),
                   mode: LaunchMode.externalApplication,
@@ -216,4 +220,102 @@ class _Footer extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// What changed since the previous call: AI comparison + guidance diff.
+class _Changes extends StatelessWidget {
+  const _Changes(this.c, this.lang);
+  final Concall c;
+  final String lang;
+
+  @override
+  Widget build(BuildContext context) {
+    final ch = c.changes;
+    final t = Theme.of(context).textTheme;
+    if (ch == null && c.guidanceDiff.isEmpty) {
+      return EmptyState(
+        icon: Icons.compare_arrows,
+        message: tr(
+          'Comparison appears once two consecutive calls are summarised.',
+        ),
+      );
+    }
+    Widget list(String title, List<String> items, IconData icon, Color color) =>
+        items.isEmpty
+        ? const SizedBox.shrink()
+        : Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                for (final x in items)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(icon, size: 18, color: color),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(x)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          );
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('vs ${c.previousPeriod ?? 'previous call'}', style: t.labelMedium),
+        if (ch != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            ch.summaryFor(lang),
+            style: t.titleMedium?.copyWith(height: 1.35),
+          ),
+          if (ch.toneShift != null && ch.toneShift!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Chip(
+                avatar: const Icon(Icons.mood, size: 18),
+                label: Text('Tone: ${ch.toneShift}'),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+        ],
+        if (c.guidanceDiff.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text(
+            tr('Guidance tracker'),
+            style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          for (final g in c.guidanceDiff) GuidanceChangeTile(g),
+        ],
+        if (ch != null) ...[
+          list(
+            'Guidance shifts (from the call)',
+            ch.guidanceShifts,
+            Icons.swap_vert,
+            Colors.indigo,
+          ),
+          list(
+            'New this time',
+            ch.newTopics,
+            Icons.add_circle_outline,
+            gainColor,
+          ),
+          list(
+            'Quietly dropped',
+            ch.droppedTopics,
+            Icons.visibility_off_outlined,
+            lossColor,
+          ),
+        ],
+      ],
+    );
+  }
 }

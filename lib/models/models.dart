@@ -3,6 +3,13 @@
 // All money values are in ₹ crore.
 
 double? _d(dynamic v) => v == null ? null : (v as num).toDouble();
+Map<String, double> _numMap(dynamic v) => v == null
+    ? const {}
+    : {
+        for (final e in (v as Map).entries)
+          if (e.value is num) e.key as String: (e.value as num).toDouble(),
+      };
+
 List<String> _strings(dynamic v) =>
     v == null ? const [] : List<String>.from(v as List);
 
@@ -65,6 +72,15 @@ class QuarterResult {
   final double? dilutedEps;
   final List<Segment> segments;
 
+  /// When the result was filed, and the share price move it triggered (%).
+  final DateTime? filedAt;
+  final double? reaction;
+
+  /// Balance sheet lines (₹ Cr) and year-to-date cash flow (₹ Cr; 'months'
+  /// = 6 or 12). Filed with half-year and full-year results only.
+  final Map<String, double> bs;
+  final Map<String, double> cf;
+
   const QuarterResult({
     required this.period,
     required this.endDate,
@@ -87,6 +103,10 @@ class QuarterResult {
     this.netProfit,
     this.dilutedEps,
     this.segments = const [],
+    this.filedAt,
+    this.reaction,
+    this.bs = const {},
+    this.cf = const {},
   });
 
   double? _ofRevenue(double? v) =>
@@ -121,6 +141,12 @@ class QuarterResult {
     tax: _d(m['tax']),
     netProfit: _d(m['netProfit']),
     dilutedEps: _d(m['dilutedEps']),
+    filedAt: m['filedAt'] == null
+        ? null
+        : DateTime.tryParse(m['filedAt'] as String),
+    reaction: _d(m['reaction']),
+    bs: _numMap(m['bs']),
+    cf: _numMap(m['cf']),
     segments: [
       for (final e in (m['segments'] as List? ?? []))
         if ((e as Map)['revenue'] != null)
@@ -160,12 +186,16 @@ class Company {
   final List<QuarterResult> quarters;
   final Credibility credibility;
 
+  /// Shareholding pattern by quarter, newest first.
+  final List<HoldingPoint> holding;
+
   const Company({
     required this.symbol,
     required this.name,
     required this.sector,
     required this.quarters,
     this.credibility = const Credibility(),
+    this.holding = const [],
   });
 
   QuarterResult? get latest => quarters.isEmpty ? null : quarters.first;
@@ -186,6 +216,10 @@ class Company {
       name: m['name'] as String? ?? m['symbol'] as String,
       sector: m['sector'] as String? ?? '',
       quarters: qs,
+      holding: [
+        for (final h in (m['holding'] as List? ?? []))
+          HoldingPoint.fromMap(Map<String, dynamic>.from(h as Map)),
+      ],
       credibility: Credibility.fromMap(
         (m['credibility'] as Map?)?.cast<String, dynamic>(),
       ),
@@ -249,6 +283,11 @@ class Concall {
   /// Keyed by language code: en, bn, hi
   final Map<String, SummaryLang> summary;
 
+  /// What changed vs the previous call (AI) and the rule-based guidance diff.
+  final ConcallChanges? changes;
+  final List<GuidanceChange> guidanceDiff;
+  final String? previousPeriod;
+
   const Concall({
     required this.period,
     this.date,
@@ -256,6 +295,9 @@ class Concall {
     this.tone = 'neutral',
     this.toneChange,
     this.summary = const {},
+    this.changes,
+    this.guidanceDiff = const [],
+    this.previousPeriod,
   });
 
   SummaryLang forLang(String lang) {
@@ -272,6 +314,16 @@ class Concall {
       transcriptUrl: m['transcriptUrl'] as String?,
       tone: m['tone'] as String? ?? 'neutral',
       toneChange: m['toneChange'] as String?,
+      changes: m['changes'] == null
+          ? null
+          : ConcallChanges.fromMap(
+              Map<String, dynamic>.from(m['changes'] as Map),
+            ),
+      guidanceDiff: [
+        for (final g in (m['guidanceDiff'] as List? ?? []))
+          GuidanceChange.fromMap(Map<String, dynamic>.from(g as Map)),
+      ],
+      previousPeriod: m['previousPeriod'] as String?,
       summary: raw.map(
         (k, v) => MapEntry(
           k,
@@ -317,11 +369,12 @@ class GuidanceItem {
   );
 }
 
-enum EventType { results, concall, investorMeet }
+enum EventType { results, concall, investorMeet, corpAction }
 
 EventType _eventType(String? t) => switch (t) {
   'concall' => EventType.concall,
   'investor_meet' => EventType.investorMeet,
+  'corp_action' => EventType.corpAction,
   _ => EventType.results,
 };
 
@@ -393,6 +446,7 @@ class FeedItem {
   final double? revenueYoY;
   final double? patYoY;
   final DateTime? announcedAt;
+  final double? reaction;
 
   const FeedItem({
     required this.symbol,
@@ -403,6 +457,7 @@ class FeedItem {
     this.revenueYoY,
     this.patYoY,
     this.announcedAt,
+    this.reaction,
   });
 
   factory FeedItem.fromMap(Map<String, dynamic> m) => FeedItem(
@@ -413,6 +468,7 @@ class FeedItem {
     pat: _d(m['pat']),
     revenueYoY: _d(m['revenueYoY']),
     patYoY: _d(m['patYoY']),
+    reaction: _d(m['reaction']),
     announcedAt: m['announcedAt'] == null
         ? null
         : DateTime.tryParse(m['announcedAt'] as String),
@@ -429,12 +485,18 @@ class NewsItem {
   /// "NSE" for exchange filings, otherwise the publisher.
   final String source;
 
+  /// Red-flag label (e.g. "Auditor resigned") and severity, for filings.
+  final String? flag;
+  final String? severity;
+
   const NewsItem({
     required this.date,
     required this.title,
     this.text,
     this.url,
     required this.source,
+    this.flag,
+    this.severity,
   });
 
   factory NewsItem.fromMap(Map<String, dynamic> m) => NewsItem(
@@ -443,6 +505,8 @@ class NewsItem {
     text: m['text'] as String?,
     url: m['url'] as String?,
     source: 'NSE',
+    flag: m['flag'] as String?,
+    severity: m['severity'] as String?,
   );
 }
 
@@ -710,3 +774,199 @@ final List<MetricDef> metricDefs = [
 ];
 
 MetricDef metricDef(String key) => metricDefs.firstWhere((d) => d.key == key);
+
+class HoldingPoint {
+  final DateTime date;
+  final double? promoter, fii, dii, mf, insurance, retail, others, pledge;
+  const HoldingPoint({
+    required this.date,
+    this.promoter,
+    this.fii,
+    this.dii,
+    this.mf,
+    this.insurance,
+    this.retail,
+    this.others,
+    this.pledge,
+  });
+
+  factory HoldingPoint.fromMap(Map<String, dynamic> m) => HoldingPoint(
+    date: DateTime.parse(m['date'] as String),
+    promoter: _d(m['promoter']),
+    fii: _d(m['fii']),
+    dii: _d(m['dii']),
+    mf: _d(m['mf']),
+    insurance: _d(m['insurance']),
+    retail: _d(m['retail']),
+    others: _d(m['others']),
+    pledge: _d(m['pledge']),
+  );
+
+  String get label {
+    const m = ['Mar', 'Jun', 'Sep', 'Dec'];
+    final i = (date.month / 3).ceil() - 1;
+    return "${m[i.clamp(0, 3)]} '${(date.year % 100).toString().padLeft(2, '0')}";
+  }
+}
+
+/// A deal, stake change, ownership shift or red flag for one company.
+class ActivityItem {
+  final DateTime date;
+
+  /// bulk | block | sast | insider | holding | flag
+  final String kind;
+  final String? who;
+  final String? side; // buy | sell
+  final double? qty, price, valueCr, holdingAfter;
+  final bool promoter;
+  final bool intraday;
+  final String? text; // holding change / flag label
+  final String? severity; // high | medium | low
+  final String? detail;
+  final String? url;
+
+  const ActivityItem({
+    required this.date,
+    required this.kind,
+    this.who,
+    this.side,
+    this.qty,
+    this.price,
+    this.valueCr,
+    this.holdingAfter,
+    this.promoter = false,
+    this.intraday = false,
+    this.text,
+    this.severity,
+    this.detail,
+    this.url,
+  });
+
+  bool get isDeal => const {'bulk', 'block', 'sast', 'insider'}.contains(kind);
+
+  factory ActivityItem.fromMap(Map<String, dynamic> m) => ActivityItem(
+    date: DateTime.tryParse(m['date'] as String? ?? '') ?? DateTime(2000),
+    kind: m['kind'] as String? ?? 'flag',
+    who: m['who'] as String?,
+    side: m['side'] as String?,
+    qty: _d(m['qty']),
+    price: _d(m['price']),
+    valueCr: _d(m['valueCr']),
+    holdingAfter: _d(m['holdingAfter']),
+    promoter: m['promoter'] as bool? ?? false,
+    intraday: m['intraday'] as bool? ?? false,
+    text: m['text'] as String?,
+    severity: m['severity'] as String?,
+    detail: m['detail'] as String?,
+    url: m['url'] as String?,
+  );
+}
+
+/// A market-wide deal (deals/latest).
+class MarketDeal {
+  final String symbol;
+  final String name;
+  final ActivityItem item;
+  const MarketDeal(this.symbol, this.name, this.item);
+
+  factory MarketDeal.fromMap(Map<String, dynamic> m) => MarketDeal(
+    m['symbol'] as String,
+    m['name'] as String? ?? m['symbol'] as String,
+    ActivityItem.fromMap(m),
+  );
+}
+
+class ConcallChanges {
+  final String summary;
+  final List<String> newTopics, droppedTopics, guidanceShifts;
+  final String? toneShift, bn, hi;
+  const ConcallChanges({
+    required this.summary,
+    this.newTopics = const [],
+    this.droppedTopics = const [],
+    this.guidanceShifts = const [],
+    this.toneShift,
+    this.bn,
+    this.hi,
+  });
+
+  String summaryFor(String lang) =>
+      (lang == 'bn' ? bn : (lang == 'hi' ? hi : null)) ?? summary;
+
+  factory ConcallChanges.fromMap(Map<String, dynamic> m) => ConcallChanges(
+    summary: m['summary'] as String? ?? '',
+    newTopics: _strings(m['newTopics']),
+    droppedTopics: _strings(m['droppedTopics']),
+    guidanceShifts: _strings(m['guidanceShifts']),
+    toneShift: m['toneShift'] as String?,
+    bn: m['bn'] as String?,
+    hi: m['hi'] as String?,
+  );
+}
+
+class GuidanceChange {
+  final String label, targetPeriod, direction;
+  final String? before, now, statement;
+  const GuidanceChange({
+    required this.label,
+    required this.targetPeriod,
+    required this.direction,
+    this.before,
+    this.now,
+    this.statement,
+  });
+
+  factory GuidanceChange.fromMap(Map<String, dynamic> m) => GuidanceChange(
+    label: m['label'] as String? ?? '',
+    targetPeriod: m['targetPeriod'] as String? ?? '',
+    direction: m['direction'] as String? ?? 'reiterated',
+    before: m['before'] as String?,
+    now: m['now'] as String?,
+    statement: m['statement'] as String?,
+  );
+}
+
+/// Results-season scoreboard (meta/season).
+class Season {
+  final String season;
+  final int reported, total;
+  final double? revGrewPct, profitGrewPct, medianRevGrowth, medianProfitGrowth;
+  final List<Map<String, dynamic>> sectors,
+      topProfit,
+      worstProfit,
+      bestReaction,
+      worstReaction;
+  const Season({
+    required this.season,
+    required this.reported,
+    required this.total,
+    this.revGrewPct,
+    this.profitGrewPct,
+    this.medianRevGrowth,
+    this.medianProfitGrowth,
+    this.sectors = const [],
+    this.topProfit = const [],
+    this.worstProfit = const [],
+    this.bestReaction = const [],
+    this.worstReaction = const [],
+  });
+
+  static List<Map<String, dynamic>> _list(dynamic v) => [
+    for (final e in (v as List? ?? [])) Map<String, dynamic>.from(e as Map),
+  ];
+
+  factory Season.fromMap(Map<String, dynamic> m) => Season(
+    season: m['season'] as String? ?? '',
+    reported: (m['reported'] as num?)?.toInt() ?? 0,
+    total: (m['total'] as num?)?.toInt() ?? 0,
+    revGrewPct: _d(m['revGrewPct']),
+    profitGrewPct: _d(m['profitGrewPct']),
+    medianRevGrowth: _d(m['medianRevGrowth']),
+    medianProfitGrowth: _d(m['medianProfitGrowth']),
+    sectors: _list(m['sectors']),
+    topProfit: _list(m['topProfit']),
+    worstProfit: _list(m['worstProfit']),
+    bestReaction: _list(m['bestReaction']),
+    worstReaction: _list(m['worstReaction']),
+  );
+}

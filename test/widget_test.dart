@@ -91,6 +91,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Revenue'), findsWidgets);
     expect(find.text('Quarterly history'), findsNothing); // below the fold
+    // Results tab extras at the top: key ratios and price reaction.
+    expect(find.text('Key ratios'), findsOneWidget);
+    expect(find.text('Share price reaction to these results'), findsOneWidget);
     expect(find.textContaining('at a glance'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Quarterly history'),
@@ -108,14 +111,39 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Remove from watchlist'), findsWidgets);
 
-    // Guidance tab shows the credibility score.
-    await tester.tap(find.text('Guidance'));
-    await tester.pumpAndSettle();
+    Future<void> tapTab(String name) async {
+      final tab = find.widgetWithText(Tab, name).first;
+      await tester.ensureVisible(tab);
+      await tester.pumpAndSettle();
+      await tester.tap(tab);
+      await tester.pumpAndSettle();
+    }
+
+    // Financials tab: balance sheet + cash flow.
+    await tapTab('Financials');
+    expect(find.text('Balance sheet'), findsOneWidget);
+    expect(find.text('Cash flow'), findsOneWidget);
+
+    // Ownership tab: shareholding, pledge, deals & red flags.
+    await tapTab('Ownership');
+    expect(find.text('Who owns the company'), findsOneWidget);
+    expect(find.text('Promoters'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Deals, stake changes & red flags'),
+      300,
+      scrollable: find
+          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .first,
+    );
+    expect(find.textContaining('Block deal'), findsWidgets);
+
+    // Guidance tab: credibility + latest guidance changes (diff).
+    await tapTab('Guidance');
     expect(find.text('Management credibility'), findsOneWidget);
+    expect(find.text('Cut'), findsWidgets);
 
     // News tab: media headline + NSE filings.
-    await tester.tap(find.text('News'));
-    await tester.pumpAndSettle();
+    await tapTab('News');
     expect(
       find.textContaining('shares rise after quarterly results'),
       findsOneWidget,
@@ -125,16 +153,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('shares rise'), findsNothing);
 
-    // Concall tab -> summary, switch to Bengali.
-    await tester.tap(find.text('Concalls'));
-    await tester.pumpAndSettle();
+    // Concall: What changed (AI + guidance diff), summary, then Bengali.
+    await tapTab('Concalls');
     await tester.tap(find.textContaining('earnings call').first);
     await tester.pumpAndSettle();
-    expect(find.text('Highlights'), findsOneWidget);
+    expect(find.textContaining('Growth guidance trimmed'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Quietly dropped'),
+      300,
+      scrollable: find
+          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .first,
+    );
+    expect(find.text('Quietly dropped'), findsOneWidget);
+    await tapTab('Highlights');
     expect(find.textContaining('[Sample] HDFC Bank reported'), findsOneWidget);
     await tester.tap(find.text('বাংলা'));
     await tester.pumpAndSettle();
     expect(find.textContaining('[নমুনা]'), findsWidgets);
+    // The whole UI switches to Bengali too.
+    expect(find.text('মূল বিষয়'), findsWidgets); // "Highlights"
+  });
+
+  testWidgets('Season scoreboard and big deals', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.textContaining('season').first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('companies have reported'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Biggest profit growth'),
+      300,
+      scrollable: find
+          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .first,
+    );
+    expect(find.text('Biggest profit growth'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Big deals'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Block deal'), findsWidgets);
   });
 
   testWidgets('Calendar shows upcoming and past events', (tester) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/providers.dart';
@@ -32,10 +33,10 @@ class SettingsScreen extends ConsumerWidget {
     final push = ref.watch(firebaseEnabledProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('More')),
+      appBar: AppBar(title: Text(tr('More'))),
       body: ListView(
         children: [
-          const SectionHeader('Summary language'),
+          SectionHeader(tr('Language')),
           RadioGroup<String>(
             groupValue: lang,
             onChanged: (v) => ref.read(languageProvider.notifier).set(v!),
@@ -46,12 +47,12 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const SectionHeader('What is a concall?'),
+          SectionHeader(tr('What is a concall?')),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(_concallExplainer[lang] ?? _concallExplainer['en']!),
           ),
-          const SectionHeader('Data'),
+          SectionHeader(tr('Data')),
           ListTile(
             leading: const Icon(Icons.storage),
             title: Text(repo.isSample ? 'Sample data (offline)' : 'Live data'),
@@ -65,9 +66,9 @@ class SettingsScreen extends ConsumerWidget {
               push ? Icons.notifications_active : Icons.notifications_off,
             ),
             title: Text(push ? 'Push alerts on' : 'Push alerts unavailable'),
-            subtitle: const Text('Star a stock to get alerts for it.'),
+            subtitle: Text(tr('Star a stock to get alerts for it.')),
           ),
-          const SectionHeader('Disclaimer'),
+          SectionHeader(tr('Disclaimer')),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 32),
             child: Text(disclaimerText),
