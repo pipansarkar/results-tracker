@@ -186,7 +186,9 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
                 # Google overloaded: back off, then try Flash-Lite once.
                 if attempt >= 1 and not tried_lite and not MODEL:
                     try:
+                        global _resolved
                         model = pick_model(client, lite=True)
+                        _resolved = model  # stay on Lite for the rest of this run
                         tried_lite = True
                         log.info("Gemini busy; falling back to %s", model)
                         continue
