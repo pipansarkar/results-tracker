@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -123,10 +122,10 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(tr('Screener')),
+        title: Text('Screener'),
         actions: [
           PopupMenuButton<String>(
-            tooltip: tr('Sort by'),
+            tooltip: 'Sort by',
             icon: const Icon(Icons.sort),
             onSelected: (k) => setState(() {
               if (k == _sort) {
@@ -146,7 +145,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
             ],
           ),
           IconButton(
-            tooltip: tr('Filters'),
+            tooltip: 'Filters',
             icon: Badge(
               isLabelVisible: _filters.isNotEmpty || _sector != null || _n500,
               child: const Icon(Icons.tune),
@@ -170,7 +169,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: SearchBar(
-              hintText: tr('Filter by name or symbol'),
+              hintText: 'Filter by name or symbol',
               leading: const Icon(Icons.search),
               elevation: const WidgetStatePropertyAll(0),
               onChanged: (v) => setState(() => _q = v.trim()),
@@ -273,7 +272,7 @@ class _ScreenerScreenState extends ConsumerState<ScreenerScreen> {
                       child: rows.isEmpty
                           ? EmptyState(
                               icon: Icons.filter_alt_off,
-                              message: tr('No stocks match these filters.'),
+                              message: 'No stocks match these filters.',
                             )
                           : ListView.builder(
                               padding: const EdgeInsets.only(bottom: 88),
@@ -550,18 +549,18 @@ class _FilterSheetState extends State<_FilterSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 children: [
                   Text(
-                    tr('Filters'),
+                    'Filters',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
                   DropdownMenu<String?>(
                     initialSelection: _sector,
                     expandedInsets: EdgeInsets.zero,
-                    label: Text(tr('Sector')),
+                    label: Text('Sector'),
                     enableFilter: true,
                     requestFocusOnTap: true,
                     dropdownMenuEntries: [
-                      DropdownMenuEntry(value: null, label: tr('All sectors')),
+                      DropdownMenuEntry(value: null, label: 'All sectors'),
                       for (final s in widget.sectors)
                         DropdownMenuEntry(value: s, label: s),
                     ],
@@ -569,7 +568,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(tr('Nifty 500 only')),
+                    title: Text('Nifty 500 only'),
                     value: _n500,
                     onChanged: (v) => setState(() => _n500 = v),
                   ),
@@ -589,7 +588,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                         context,
                         const _FilterResult(null, false, {}),
                       ),
-                      child: Text(tr('Reset all')),
+                      child: Text('Reset all'),
                     ),
                     const Spacer(),
                     FilledButton(
@@ -605,7 +604,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                           _FilterResult(_sector, _n500, f),
                         );
                       },
-                      child: Text(tr('Show results')),
+                      child: Text('Show results'),
                     ),
                   ],
                 ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -24,16 +23,15 @@ class SeasonScreen extends ConsumerWidget {
         c.symbol: c.name,
     };
     return Scaffold(
-      appBar: AppBar(title: Text(tr('Results season'))),
+      appBar: AppBar(title: Text('Results season')),
       body: season.when(
         loading: () => loading,
         error: asyncError,
         data: (s) => s == null
             ? EmptyState(
                 icon: Icons.scoreboard_outlined,
-                message: tr(
-                  'The scoreboard appears once enough companies have reported.',
-                ),
+                message:
+                    'The scoreboard appears once enough companies have reported.',
               )
             : ListView(
                 padding: const EdgeInsets.only(bottom: 24),
@@ -42,35 +40,35 @@ class SeasonScreen extends ConsumerWidget {
                   _Header(s),
                   if (s.sectors.isNotEmpty)
                     Section(
-                      title: tr('Sectors (median YoY growth)'),
+                      title: 'Sectors (median YoY growth)',
                       child: _Sectors(s.sectors),
                     ),
                   Section(
-                    title: tr('Biggest profit growth'),
+                    title: 'Biggest profit growth',
                     child: _List(s.topProfit, names, valueKey: 'pg'),
                   ),
                   Section(
-                    title: tr('Biggest profit falls'),
+                    title: 'Biggest profit falls',
                     child: _List(s.worstProfit, names, valueKey: 'pg'),
                   ),
                   if (s.bestReaction.isNotEmpty)
                     Section(
-                      title: tr('Market loved these results'),
+                      title: 'Market loved these results',
                       child: _List(
                         s.bestReaction,
                         names,
                         valueKey: 'r',
-                        label: tr('Price'),
+                        label: 'Price',
                       ),
                     ),
                   if (s.worstReaction.isNotEmpty)
                     Section(
-                      title: tr('Market disliked these results'),
+                      title: 'Market disliked these results',
                       child: _List(
                         s.worstReaction,
                         names,
                         valueKey: 'r',
-                        label: tr('Price'),
+                        label: 'Price',
                       ),
                     ),
                   const Padding(
@@ -253,7 +251,7 @@ class _List extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (rows.isEmpty) return Text(tr('Not enough data yet.'));
+    if (rows.isEmpty) return Text('Not enough data yet.');
     return Column(
       children: [
         for (final r in rows)

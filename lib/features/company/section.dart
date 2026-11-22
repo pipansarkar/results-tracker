@@ -29,7 +29,7 @@ class Section extends StatelessWidget {
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              ?trailing,
+              if (trailing != null) Flexible(child: trailing!),
             ],
           ),
           const SizedBox(height: 10),

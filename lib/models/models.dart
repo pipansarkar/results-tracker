@@ -236,42 +236,94 @@ double? pctChange(double? now, double? before) {
 class QaPair {
   final String q;
   final String a;
-  const QaPair(this.q, this.a);
+  final String? analyst;
+  const QaPair(this.q, this.a, [this.analyst]);
 }
 
+class SegmentNote {
+  final String name;
+  final String commentary;
+  const SegmentNote(this.name, this.commentary);
+}
+
+/// Detailed concall summary (English).
 class SummaryLang {
+  final String? overview;
   final List<String> highlights;
+  final List<String> financials;
+  final List<SegmentNote> segments;
+  final List<String> outlook;
+  final List<String> margins;
+  final List<String> capex;
+  final List<String> balanceSheet;
   final List<String> guidance;
   final List<QaPair> qa;
+  final List<String> risks;
   final List<String> redFlags;
+  final List<String> quotes;
   const SummaryLang({
+    this.overview,
     this.highlights = const [],
+    this.financials = const [],
+    this.segments = const [],
+    this.outlook = const [],
+    this.margins = const [],
+    this.capex = const [],
+    this.balanceSheet = const [],
     this.guidance = const [],
     this.qa = const [],
+    this.risks = const [],
     this.redFlags = const [],
+    this.quotes = const [],
   });
 
   bool get isEmpty =>
-      highlights.isEmpty && guidance.isEmpty && qa.isEmpty && redFlags.isEmpty;
+      (overview ?? '').isEmpty &&
+      highlights.isEmpty &&
+      guidance.isEmpty &&
+      qa.isEmpty &&
+      redFlags.isEmpty;
 
   factory SummaryLang.fromMap(Map<String, dynamic>? m) => m == null
       ? const SummaryLang()
       : SummaryLang(
+          overview: m['overview'] as String?,
           highlights: _strings(m['highlights']),
+          financials: _strings(m['financials']),
+          segments: [
+            for (final e in (m['segments'] as List? ?? []))
+              SegmentNote(
+                (e as Map)['name'] as String? ?? '',
+                e['commentary'] as String? ?? '',
+              ),
+          ],
+          outlook: _strings(m['outlook']),
+          margins: _strings(m['margins']),
+          capex: _strings(m['capex']),
+          balanceSheet: _strings(m['balanceSheet']),
           guidance: _strings(m['guidance']),
           qa: (m['qa'] as List? ?? [])
               .map(
                 (e) => QaPair(
                   (e as Map)['q'] as String? ?? '',
                   e['a'] as String? ?? '',
+                  e['analyst'] as String?,
                 ),
               )
               .toList(),
+          risks: _strings(m['risks']),
           redFlags: _strings(m['redFlags']),
+          quotes: _strings(m['quotes']),
         );
 }
 
 class Concall {
+  /// Document id: "Q2FY27" for the earnings call, "Q2FY27-1223" for an
+  /// analyst / investor call in that quarter.
+  final String id;
+
+  /// earnings | analyst
+  final String kind;
   final String period;
   final DateTime? date;
   final String? transcriptUrl;
@@ -288,7 +340,30 @@ class Concall {
   final List<GuidanceChange> guidanceDiff;
   final String? previousPeriod;
 
+  /// earnings_call | analyst_meet | investor_call | investor_conference | agm | other
+  final String? callType;
+
+  String get _type =>
+      callType ?? (kind == 'earnings' ? 'earnings_call' : 'analyst_meet');
+
+  bool get isEarnings => _type == 'earnings_call';
+
+  /// Short side label for the call type.
+  String get typeLabel => switch (_type) {
+    'earnings_call' => 'Earnings call',
+    'analyst_meet' => 'Analyst meet',
+    'investor_call' => 'Investor call',
+    'investor_conference' => 'Investor conference',
+    'agm' => 'AGM',
+    _ => 'Company call',
+  };
+
+  String get title => '$period · $typeLabel';
+
   const Concall({
+    String? id,
+    this.kind = 'earnings',
+    this.callType,
     required this.period,
     this.date,
     this.transcriptUrl,
@@ -298,7 +373,7 @@ class Concall {
     this.changes,
     this.guidanceDiff = const [],
     this.previousPeriod,
-  });
+  }) : id = id ?? period;
 
   SummaryLang forLang(String lang) {
     final s = summary[lang];
@@ -309,6 +384,9 @@ class Concall {
   factory Concall.fromMap(Map<String, dynamic> m) {
     final raw = (m['summary'] as Map?)?.cast<String, dynamic>() ?? {};
     return Concall(
+      id: m['id'] as String? ?? m['period'] as String,
+      kind: m['kind'] as String? ?? 'earnings',
+      callType: m['callType'] as String?,
       period: m['period'] as String,
       date: m['date'] == null ? null : DateTime.tryParse(m['date'] as String),
       transcriptUrl: m['transcriptUrl'] as String?,
@@ -516,6 +594,9 @@ class NewsItem {
 class StockMetrics {
   final String symbol;
   final String? period;
+
+  /// Trading day of the closing price used (YYYY-MM-DD).
+  final String? asOf;
   final double? price;
   final double? marketCap; // ₹ Cr
   final double? pe;
@@ -540,6 +621,7 @@ class StockMetrics {
   const StockMetrics({
     required this.symbol,
     this.period,
+    this.asOf,
     this.price,
     this.marketCap,
     this.pe,
@@ -562,30 +644,32 @@ class StockMetrics {
     this.isBank = false,
   });
 
-  factory StockMetrics.fromMap(Map<String, dynamic> m) => StockMetrics(
-    symbol: m['s'] as String,
-    period: m['q'] as String?,
-    price: _d(m['p']),
-    marketCap: _d(m['mc']),
-    pe: _d(m['pe']),
-    peg: _d(m['peg']),
-    pb: _d(m['pb']),
-    roe: _d(m['roe']),
-    roce: _d(m['roce']),
-    debtEquity: _d(m['de']),
-    evEbitda: _d(m['ev']),
-    bookValue: _d(m['bv']),
-    epsTtm: _d(m['eps']),
-    revenueTtm: _d(m['rev']),
-    profitTtm: _d(m['pat']),
-    revGrowth: _d(m['rg']),
-    profitGrowth: _d(m['pg']),
-    revGrowthTtm: _d(m['rgt']),
-    profitGrowthTtm: _d(m['pgt']),
-    ebitdaMargin: _d(m['ebm']),
-    netMargin: _d(m['npm']),
-    isBank: m['bank'] as bool? ?? false,
-  );
+  factory StockMetrics.fromMap(Map<String, dynamic> m, {String? asOf}) =>
+      StockMetrics(
+        symbol: m['s'] as String,
+        period: m['q'] as String?,
+        asOf: asOf,
+        price: _d(m['p']),
+        marketCap: _d(m['mc']),
+        pe: _d(m['pe']),
+        peg: _d(m['peg']),
+        pb: _d(m['pb']),
+        roe: _d(m['roe']),
+        roce: _d(m['roce']),
+        debtEquity: _d(m['de']),
+        evEbitda: _d(m['ev']),
+        bookValue: _d(m['bv']),
+        epsTtm: _d(m['eps']),
+        revenueTtm: _d(m['rev']),
+        profitTtm: _d(m['pat']),
+        revGrowth: _d(m['rg']),
+        profitGrowth: _d(m['pg']),
+        revGrowthTtm: _d(m['rgt']),
+        profitGrowthTtm: _d(m['pgt']),
+        ebitdaMargin: _d(m['ebm']),
+        netMargin: _d(m['npm']),
+        isBank: m['bank'] as bool? ?? false,
+      );
 }
 
 /// One metric that can be shown, filtered, sorted and compared.

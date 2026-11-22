@@ -70,7 +70,7 @@ class FirestoreRepository implements Repository {
         .doc(symbol)
         .collection('concalls')
         .orderBy('date', descending: true)
-        .limit(8)
+        .limit(12)
         .get();
     return snap.docs.map((d) => Concall.fromMap(d.data())).toList();
   }
@@ -81,9 +81,12 @@ class FirestoreRepository implements Repository {
         .collection('companies')
         .doc(symbol)
         .collection('guidance')
-        .limit(50)
+        .limit(80)
         .get();
-    return snap.docs.map((d) => GuidanceItem.fromMap(d.data())).toList();
+    return snap.docs
+        .where((d) => d.data()['status'] != 'superseded')
+        .map((d) => GuidanceItem.fromMap(d.data()))
+        .toList();
   }
 
   @override
@@ -101,7 +104,10 @@ class FirestoreRepository implements Repository {
     return [
       for (final d in snap.docs)
         for (final e in (d.data()['items'] as List? ?? []))
-          StockMetrics.fromMap(Map<String, dynamic>.from(e as Map)),
+          StockMetrics.fromMap(
+            Map<String, dynamic>.from(e as Map),
+            asOf: d.data()['asOf'] as String?,
+          ),
     ];
   }
 

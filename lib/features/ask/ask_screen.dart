@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/providers.dart';
@@ -161,7 +160,6 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       });
       return;
     }
-    final lang = languageNames[ref.read(languageProvider)] ?? 'English';
     try {
       final data = await _context();
       final model = FirebaseAI.googleAI().generativeModel(
@@ -170,7 +168,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           'You answer questions about one Indian listed company for retail investors. '
           'Use ONLY the data provided; if it does not contain the answer, say so. '
           'Quote periods (e.g. Q2FY27) and numbers. Be concise: short paragraphs or bullets. '
-          'Never give buy/sell/hold advice or price targets. Answer in $lang.',
+          'Never give buy/sell/hold advice or price targets. Answer in English.',
         ),
       );
       final reply = _Msg(false, '');
@@ -227,7 +225,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(tr('Ask AI')),
+            Text('Ask AI'),
             Text(name, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
@@ -304,7 +302,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                       textInputAction: TextInputAction.send,
                       onSubmitted: _ask,
                       decoration: InputDecoration(
-                        hintText: tr('Ask a question…'),
+                        hintText: 'Ask a question…',
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -45,13 +44,13 @@ class CompanyScreen extends ConsumerWidget {
           ),
           actions: [
             IconButton(
-              tooltip: tr('Ask AI about this company'),
+              tooltip: 'Ask AI about this company',
               icon: const Icon(Icons.auto_awesome),
               onPressed: () =>
                   context.push('/company/${Uri.encodeComponent(symbol)}/ask'),
             ),
             IconButton(
-              tooltip: tr('Compare with other stocks'),
+              tooltip: 'Compare with other stocks',
               icon: const Icon(Icons.compare_arrows),
               onPressed: () =>
                   context.push('/compare?s=${Uri.encodeComponent(symbol)}'),
@@ -62,12 +61,12 @@ class CompanyScreen extends ConsumerWidget {
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: [
-              Tab(text: tr('Results')),
-              Tab(text: tr('Financials')),
-              Tab(text: tr('Ownership')),
-              Tab(text: tr('Concalls')),
-              Tab(text: tr('Guidance')),
-              Tab(text: tr('News')),
+              Tab(text: 'Results'),
+              Tab(text: 'Financials'),
+              Tab(text: 'Ownership'),
+              Tab(text: 'Concalls'),
+              Tab(text: 'Guidance'),
+              Tab(text: 'News'),
             ],
           ),
         ),
@@ -92,7 +91,7 @@ class CompanyScreen extends ConsumerWidget {
               data: (c) => c == null
                   ? EmptyState(
                       icon: Icons.hourglass_top,
-                      message: tr('Financials are still loading.'),
+                      message: 'Financials are still loading.',
                     )
                   : FinancialsTab(c),
             ),
@@ -102,7 +101,7 @@ class CompanyScreen extends ConsumerWidget {
               data: (c) => c == null
                   ? EmptyState(
                       icon: Icons.hourglass_top,
-                      message: tr('Ownership data is still loading.'),
+                      message: 'Ownership data is still loading.',
                     )
                   : OwnershipTab(c),
             ),
@@ -113,9 +112,8 @@ class CompanyScreen extends ConsumerWidget {
               data: (c) => c == null
                   ? EmptyState(
                       icon: Icons.flag_outlined,
-                      message: tr(
-                        'Guidance appears after the first concall summary.',
-                      ),
+                      message:
+                          'Guidance appears after the first concall summary.',
                     )
                   : _GuidanceTab(c),
             ),
@@ -153,7 +151,7 @@ class _Section extends StatelessWidget {
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              ?trailing,
+              if (trailing != null) Flexible(child: trailing!),
             ],
           ),
           const SizedBox(height: 10),
@@ -230,33 +228,29 @@ class _ResultsTabState extends State<_ResultsTab> {
         _KeyRatios(widget.c.symbol),
         _Glance(q: q, prev: prev, ago: ago),
         _Section(
-          title: tr('Trend'),
+          title: 'Trend',
           child: Column(
             children: [
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<_Metric>(
-                  showSelectedIcon: false,
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  segments: [
-                    ButtonSegment(
-                      value: _Metric.revenue,
-                      label: Text(tr('Revenue')),
-                    ),
-                    ButtonSegment(
-                      value: _Metric.ebitda,
-                      label: Text(tr('EBITDA')),
-                    ),
-                    ButtonSegment(
-                      value: _Metric.profit,
-                      label: Text(tr('Profit')),
-                    ),
-                    ButtonSegment(value: _Metric.eps, label: Text(tr('EPS'))),
+              // Chips wrap on narrow phones instead of overflowing.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final (m, label) in const [
+                      (_Metric.revenue, 'Revenue'),
+                      (_Metric.ebitda, 'EBITDA'),
+                      (_Metric.profit, 'Profit'),
+                      (_Metric.eps, 'EPS'),
+                    ])
+                      ChoiceChip(
+                        label: Text(label),
+                        selected: _metric == m,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) => setState(() => _metric = m),
+                      ),
                   ],
-                  selected: {_metric},
-                  onSelectionChanged: (v) => setState(() => _metric = v.first),
                 ),
               ),
               QuarterBarChart(
@@ -281,7 +275,7 @@ class _ResultsTabState extends State<_ResultsTab> {
           ),
         ),
         _Section(
-          title: tr('Margins'),
+          title: 'Margins',
           child: MarginLineChart(
             labels: last8.map((e) => e.period).toList(),
             ebitda: last8.map((e) => e.ebitdaMargin ?? 0).toList(),
@@ -289,7 +283,7 @@ class _ResultsTabState extends State<_ResultsTab> {
           ),
         ),
         _Section(
-          title: tr('Profit & loss'),
+          title: 'Profit & loss',
           trailing: Text(
             '₹ Cr · ${q.consolidated ? 'Consolidated' : 'Standalone'}',
             style: Theme.of(context).textTheme.bodySmall,
@@ -298,12 +292,12 @@ class _ResultsTabState extends State<_ResultsTab> {
         ),
         if (_costRows(q).isNotEmpty)
           _Section(
-            title: tr('Where each ₹100 of revenue went'),
+            title: 'Where each ₹100 of revenue went',
             child: _CostBreakdown(q),
           ),
         if (q.segments.isNotEmpty)
           _Section(
-            title: tr('Revenue by segment'),
+            title: 'Revenue by segment',
             trailing: Text(
               q.period,
               style: Theme.of(context).textTheme.bodySmall,
@@ -311,7 +305,7 @@ class _ResultsTabState extends State<_ResultsTab> {
             child: _Segments(q, ago),
           ),
         _Peers(widget.c),
-        _Section(title: tr('Quarterly history'), child: _QuarterTable(qs)),
+        _Section(title: 'Quarterly history', child: _QuarterTable(qs)),
         const Padding(
           padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
           child: Text(disclaimerText, style: TextStyle(fontSize: 11)),
@@ -336,9 +330,9 @@ class _KeyRatios extends ConsumerWidget {
     'roe',
     'roce',
     'de',
-    'eps',
-    'bv',
+    'ebm',
     'npm',
+    'eps',
   ];
 
   @override
@@ -348,9 +342,11 @@ class _KeyRatios extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final defs = _keys.map(metricDef).where((d) => d.get(m) != null).toList();
     return _Section(
-      title: tr('Key ratios'),
+      title: 'Key ratios',
       trailing: Text(
-        tr('TTM · price as of last close'),
+        m.asOf == null
+            ? 'TTM · at last close'
+            : 'TTM · as of ${dayFormat.format(DateTime.parse(m.asOf!))} close',
         style: Theme.of(context).textTheme.bodySmall,
       ),
       child: LayoutBuilder(
@@ -441,7 +437,7 @@ class _Peers extends ConsumerWidget {
         onPressed: () => context.push(
           '/compare?s=${top.take(4).map((m) => Uri.encodeComponent(m.symbol)).join(',')}',
         ),
-        child: Text(tr('Compare')),
+        child: Text('Compare'),
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -453,7 +449,7 @@ class _Peers extends ConsumerWidget {
           dataRowMaxHeight: 36,
           showCheckboxColumn: false,
           columns: [
-            DataColumn(label: Text(tr('Company'), style: head)),
+            DataColumn(label: Text('Company', style: head)),
             for (final k in keys)
               DataColumn(
                 label: Text(metricDef(k).short, style: head),
@@ -625,7 +621,7 @@ class _ReactionTile extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              tr('Share price reaction to these results'),
+              'Share price reaction to these results',
               style: Theme.of(context).textTheme.labelMedium,
             ),
           ),
@@ -679,8 +675,8 @@ class _Kpi extends StatelessWidget {
           spacing: 4,
           runSpacing: 4,
           children: [
-            GrowthChip(pctChange(k.now, k.yBefore), label: tr('YoY')),
-            GrowthChip(pctChange(k.now, k.qBefore), label: tr('QoQ')),
+            GrowthChip(pctChange(k.now, k.yBefore), label: 'YoY'),
+            GrowthChip(pctChange(k.now, k.qBefore), label: 'QoQ'),
           ],
         ),
       ],
@@ -790,12 +786,12 @@ class _PnlTable extends StatelessWidget {
             label: Text(p?.period ?? 'Prev', style: head),
             numeric: true,
           ),
-          DataColumn(label: Text(tr('QoQ'), style: head), numeric: true),
+          DataColumn(label: Text('QoQ', style: head), numeric: true),
           DataColumn(
             label: Text(a?.period ?? 'Yr ago', style: head),
             numeric: true,
           ),
-          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
+          DataColumn(label: Text('YoY', style: head), numeric: true),
         ],
         rows: [
           for (final r in visible)
@@ -996,7 +992,7 @@ class _Segments extends StatelessWidget {
                     const SizedBox(width: 8),
                     GrowthChip(
                       pctChange(s.revenue, agoBy[s.name]),
-                      label: tr('YoY'),
+                      label: 'YoY',
                     ),
                   ],
                 ),
@@ -1032,7 +1028,7 @@ class _Segments extends StatelessWidget {
           ),
         const SizedBox(height: 4),
         Text(
-          tr('Segment figures are before inter-segment eliminations.'),
+          'Segment figures are before inter-segment eliminations.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
@@ -1061,15 +1057,15 @@ class _QuarterTable extends StatelessWidget {
         dataRowMinHeight: 30,
         dataRowMaxHeight: 34,
         columns: [
-          DataColumn(label: Text(tr('Quarter'), style: head)),
-          DataColumn(label: Text(tr('Revenue'), style: head), numeric: true),
-          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
-          DataColumn(label: Text(tr('EBITDA'), style: head), numeric: true),
-          DataColumn(label: Text(tr('Margin'), style: head), numeric: true),
-          DataColumn(label: Text(tr('Profit'), style: head), numeric: true),
-          DataColumn(label: Text(tr('YoY'), style: head), numeric: true),
-          DataColumn(label: Text(tr('EPS'), style: head), numeric: true),
-          DataColumn(label: Text(tr('Price move'), style: head), numeric: true),
+          DataColumn(label: Text('Quarter', style: head)),
+          DataColumn(label: Text('Revenue', style: head), numeric: true),
+          DataColumn(label: Text('YoY', style: head), numeric: true),
+          DataColumn(label: Text('EBITDA', style: head), numeric: true),
+          DataColumn(label: Text('Margin', style: head), numeric: true),
+          DataColumn(label: Text('Profit', style: head), numeric: true),
+          DataColumn(label: Text('YoY', style: head), numeric: true),
+          DataColumn(label: Text('EPS', style: head), numeric: true),
+          DataColumn(label: Text('Price move', style: head), numeric: true),
         ],
         rows: [
           for (var i = 0; i < quarters.length; i++)
@@ -1154,7 +1150,7 @@ class _ConcallCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: () => context.push(
-          '/company/${Uri.encodeComponent(symbol)}/concall/${c.period}',
+          '/company/${Uri.encodeComponent(symbol)}/concall/${c.id}',
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -1166,9 +1162,17 @@ class _ConcallCard extends StatelessWidget {
                   _ToneDot(c.tone),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      '${c.period} earnings call',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          c.period,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        CallTypeLabel(c),
+                      ],
                     ),
                   ),
                   if (c.date != null)
@@ -1289,7 +1293,7 @@ class _GuidanceTab extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              tr('Management credibility'),
+                              'Management credibility',
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 4),
@@ -1299,9 +1303,7 @@ class _GuidanceTab extends ConsumerWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              tr(
-                                'Guidance given in past concalls compared with reported results.',
-                              ),
+                              'Guidance given in past concalls compared with reported results.',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -1316,9 +1318,7 @@ class _GuidanceTab extends ConsumerWidget {
                 Padding(
                   padding: EdgeInsets.all(24),
                   child: Text(
-                    tr(
-                      'No guidance tracked yet. It is extracted from concall transcripts.',
-                    ),
+                    'No guidance tracked yet. It is extracted from concall transcripts.',
                     textAlign: TextAlign.center,
                   ),
                 ),

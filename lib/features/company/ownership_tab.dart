@@ -1,6 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -40,13 +39,13 @@ class OwnershipTab extends ConsumerWidget {
           Padding(
             padding: EdgeInsets.all(24),
             child: Text(
-              tr('Shareholding pattern is still loading for this company.'),
+              'Shareholding pattern is still loading for this company.',
               textAlign: TextAlign.center,
             ),
           )
         else ...[
           Section(
-            title: tr('Who owns the company'),
+            title: 'Who owns the company',
             trailing: Text(
               h.first.label,
               style: Theme.of(context).textTheme.bodySmall,
@@ -55,22 +54,20 @@ class OwnershipTab extends ConsumerWidget {
           ),
           if (h.length >= 2)
             Section(
-              title: tr('Trend'),
+              title: 'Trend',
               child: _Trend(h.take(6).toList().reversed.toList()),
             ),
-          Section(title: tr('History (%)'), child: _Table(h.take(6).toList())),
+          Section(title: 'History (%)', child: _Table(h.take(6).toList())),
         ],
         Section(
-          title: tr('Deals, stake changes & red flags'),
+          title: 'Deals, stake changes & red flags',
           child: activity.when(
             loading: () =>
                 const Padding(padding: EdgeInsets.all(16), child: loading),
             error: (e, _) => Text('Could not load: $e'),
             data: (items) => items.isEmpty
                 ? Text(
-                    tr(
-                      'No bulk/block deals, stake changes or red flags recorded yet.',
-                    ),
+                    'No bulk/block deals, stake changes or red flags recorded yet.',
                   )
                 : Column(
                     children: [for (final a in items.take(40)) ActivityTile(a)],
@@ -269,6 +266,22 @@ class _Trend extends StatelessWidget {
                       );
                     },
                   ),
+                ),
+              ),
+              lineTouchData: LineTouchData(
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipColor: (_) => const Color(0xEE1F2937),
+                  getTooltipItems: (spots) => [
+                    for (final s in spots)
+                      LineTooltipItem(
+                        '${_cats[s.barIndex].$1} ${s.y.toStringAsFixed(2)}%',
+                        const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               lineBarsData: [

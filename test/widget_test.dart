@@ -132,7 +132,9 @@ void main() {
       find.text('Deals, stake changes & red flags'),
       300,
       scrollable: find
-          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
           .first,
     );
     expect(find.textContaining('Block deal'), findsWidgets);
@@ -153,26 +155,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('shares rise'), findsNothing);
 
-    // Concall: What changed (AI + guidance diff), summary, then Bengali.
+    // Concalls: earnings call + analyst meet, each labelled.
     await tapTab('Concalls');
-    await tester.tap(find.textContaining('earnings call').first);
+    expect(find.text('Earnings call'), findsWidgets);
+    expect(find.text('Analyst meet'), findsOneWidget);
+    await tester.tap(find.text('Earnings call').first);
     await tester.pumpAndSettle();
+    // What changed (AI + guidance diff).
     expect(find.textContaining('Growth guidance trimmed'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Quietly dropped'),
       300,
       scrollable: find
-          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
           .first,
     );
     expect(find.text('Quietly dropped'), findsOneWidget);
-    await tapTab('Highlights');
-    expect(find.textContaining('[Sample] HDFC Bank reported'), findsOneWidget);
-    await tester.tap(find.text('বাংলা'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('[নমুনা]'), findsWidgets);
-    // The whole UI switches to Bengali too.
-    expect(find.text('মূল বিষয়'), findsWidgets); // "Highlights"
+    // Detailed sections.
+    await tapTab('Overview');
+    expect(find.textContaining('delivered a steady'), findsOneWidget);
+    expect(find.text('Key takeaways'), findsOneWidget);
+    await tapTab('Business');
+    expect(find.text('Segments'), findsOneWidget);
+    expect(find.text('Capex & expansion'), findsOneWidget);
+    await tapTab('Risks');
+    expect(find.text('Risks & headwinds'), findsOneWidget);
   });
 
   testWidgets('Season scoreboard and big deals', (tester) async {
@@ -184,7 +193,9 @@ void main() {
       find.text('Biggest profit growth'),
       300,
       scrollable: find
-          .byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down)
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
           .first,
     );
     expect(find.text('Biggest profit growth'), findsOneWidget);

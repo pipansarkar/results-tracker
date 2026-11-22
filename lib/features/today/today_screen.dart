@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -62,7 +61,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           ),
                         ),
                         FilterChip(
-                          label: Text(tr('Watchlist only')),
+                          label: Text('Watchlist only'),
                           selected: _watchlistOnly,
                           onSelected: (v) => setState(() => _watchlistOnly = v),
                         ),
@@ -70,7 +69,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                     ),
                   ),
                   const _SeasonCard(),
-                  SectionHeader(tr('Results announced')),
+                  SectionHeader('Results announced'),
                   ...feed.when(
                     loading: () => [
                       const Padding(
@@ -85,14 +84,14 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         return [
                           EmptyState(
                             icon: Icons.hourglass_empty,
-                            message: tr('No results announced yet today.'),
+                            message: 'No results announced yet today.',
                           ),
                         ];
                       }
                       return list.map((i) => _FeedCard(i)).toList();
                     },
                   ),
-                  SectionHeader(tr('Concalls today')),
+                  SectionHeader('Concalls today'),
                   ...calendar.when(
                     loading: () => [const SizedBox.shrink()],
                     error: (e, s) => [asyncError(e, s)],
@@ -114,7 +113,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                               horizontal: 16,
                               vertical: 8,
                             ),
-                            child: Text(tr('No concalls scheduled today.')),
+                            child: Text('No concalls scheduled today.'),
                           ),
                         ];
                       }
@@ -223,7 +222,7 @@ class _Metric extends StatelessWidget {
       Text(label, style: Theme.of(context).textTheme.labelSmall),
       Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
       const SizedBox(height: 4),
-      GrowthChip(yoy, label: tr('YoY')),
+      GrowthChip(yoy, label: 'YoY'),
     ],
   );
 }

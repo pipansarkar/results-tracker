@@ -129,24 +129,3 @@ class WatchlistNotifier extends Notifier<List<String>> {
 final watchlistProvider = NotifierProvider<WatchlistNotifier, List<String>>(
   WatchlistNotifier.new,
 );
-
-// ---------------------------------------------------------------- language
-
-/// Summary language: en | bn | hi
-class LanguageNotifier extends Notifier<String> {
-  static const _key = 'lang';
-
-  @override
-  String build() => ref.read(prefsProvider).getString(_key) ?? 'en';
-
-  Future<void> set(String lang) async {
-    state = lang;
-    await ref.read(prefsProvider).setString(_key, lang);
-  }
-}
-
-final languageProvider = NotifierProvider<LanguageNotifier, String>(
-  LanguageNotifier.new,
-);
-
-const languageNames = {'en': 'English', 'bn': 'বাংলা', 'hi': 'हिंदी'};

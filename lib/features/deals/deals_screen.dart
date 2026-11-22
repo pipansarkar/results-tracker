@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -27,7 +26,7 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
     final deals = ref.watch(marketDealsProvider);
     final watch = ref.watch(watchlistProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(tr('Big deals'))),
+      appBar: AppBar(title: Text('Big deals')),
       body: Column(
         children: [
           SizedBox(
@@ -52,13 +51,13 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
                     ),
                   ),
                 FilterChip(
-                  label: Text(tr('Watchlist')),
+                  label: Text('Watchlist'),
                   selected: _watchOnly,
                   onSelected: (v) => setState(() => _watchOnly = v),
                 ),
                 const SizedBox(width: 8),
                 FilterChip(
-                  label: Text(tr('Hide intraday')),
+                  label: Text('Hide intraday'),
                   selected: _hideIntraday,
                   onSelected: (v) => setState(() => _hideIntraday = v),
                 ),
@@ -85,7 +84,7 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
                 if (list.isEmpty) {
                   return EmptyState(
                     icon: Icons.handshake_outlined,
-                    message: tr('No deals match.'),
+                    message: 'No deals match.',
                   );
                 }
                 return RefreshIndicator(

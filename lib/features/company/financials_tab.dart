@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -77,7 +76,7 @@ class FinancialsTab extends StatelessWidget {
       children: [
         if (latestBs != null && !bank)
           Section(
-            title: tr('Health check'),
+            title: 'Health check',
             trailing: Text(
               head(latestBs),
               style: Theme.of(context).textTheme.bodySmall,
@@ -124,9 +123,9 @@ class FinancialsTab extends StatelessWidget {
           ),
         if (withBs.isNotEmpty)
           Section(
-            title: tr('Balance sheet'),
+            title: 'Balance sheet',
             trailing: Text(
-              tr('₹ Cr'),
+              '₹ Cr',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             child: _Grid(
@@ -140,9 +139,9 @@ class FinancialsTab extends StatelessWidget {
           ),
         if (withCf.isNotEmpty)
           Section(
-            title: tr('Cash flow'),
+            title: 'Cash flow',
             trailing: Text(
-              tr('₹ Cr · year to date'),
+              '₹ Cr · year to date',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             child: _Grid(

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/i18n.dart';
-import 'data/providers.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme.dart';
@@ -111,24 +109,24 @@ class _Shell extends StatelessWidget {
         NavigationDestination(
           icon: Icon(Icons.today_outlined),
           selectedIcon: Icon(Icons.today),
-          label: tr('Today'),
+          label: 'Today',
         ),
         NavigationDestination(
           icon: Icon(Icons.calendar_month_outlined),
           selectedIcon: Icon(Icons.calendar_month),
-          label: tr('Calendar'),
+          label: 'Calendar',
         ),
         NavigationDestination(
           icon: Icon(Icons.filter_alt_outlined),
           selectedIcon: Icon(Icons.filter_alt),
-          label: tr('Screener'),
+          label: 'Screener',
         ),
         NavigationDestination(
           icon: Icon(Icons.star_border),
           selectedIcon: Icon(Icons.star),
-          label: tr('Watchlist'),
+          label: 'Watchlist',
         ),
-        NavigationDestination(icon: Icon(Icons.more_horiz), label: tr('More')),
+        NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
       ],
     ),
   );
@@ -146,19 +144,12 @@ class _ResultsTrackerAppState extends ConsumerState<ResultsTrackerApp> {
 
   @override
   Widget build(BuildContext context) {
-    // The language setting drives both the UI and concall summaries.
-    final lang = ref.watch(languageProvider);
-    appLang = lang;
     return MaterialApp.router(
-      title: tr('Quarterly Results & Concall Tracker'),
+      title: 'Quarterly Results & Concall Tracker',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
       routerConfig: _router,
-      // Re-key the tree so every screen re-reads its strings on change;
-      // the router keeps the current page.
-      builder: (context, child) =>
-          KeyedSubtree(key: ValueKey(lang), child: child!),
     );
   }
 }

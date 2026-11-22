@@ -60,7 +60,10 @@ TOP_N = int(os.environ.get("TOP_N", "0"))
 # don't have it yet, until the whole market is done. Fully automatic.
 BACKFILL_MINUTES = float(os.environ.get("BACKFILL_MINUTES", "12"))
 HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
-# Concall summaries: time budget per run (backlog uses Flash-Lite).
+# Concall summaries: time budget per run (backlog uses Flash-Lite) and how
+# many past quarters of earnings calls to keep per company.
+TRANSCRIPT_DAYS = int(os.environ.get("TRANSCRIPT_DAYS", "400"))   # ~last 4 quarters
+MAX_CALLS = int(os.environ.get("MAX_CALLS", "8"))                   # per company
 SUMMARY_MINUTES = float(os.environ.get("SUMMARY_MINUTES", "12"))
 
 
@@ -112,13 +115,15 @@ class Pipeline:
             self.state["historyCursor"] = None
             self.state["trReset"] = 1
         self.processed = set(self.state.get("processed", []))
-        self.queue: List[Dict] = self.state.get("transcriptQueue", [])
+        self.queue: List[Dict] = []  # legacy; transcripts now live in transcripts/{sym}
         self.backfilled = set(self.state.get("backfilled", []))
         self.today = now_ist().date()
         # Calendar events collected during this run, keyed by week id.
         self._cal: Dict[str, List[Dict]] = {}
         # Company announcements (news) collected during this run, by symbol.
         self._news: Dict[str, List[Dict]] = {}
+        # Transcripts found this run, per symbol (merged into transcripts/{sym}).
+        self._new_transcripts: Dict[str, List[Dict]] = {}
         # Deals, ownership changes and red flags per symbol (activity/{sym}).
         self._activity: Dict[str, List[Dict]] = {}
         self._market_deals: List[Dict] = []
@@ -132,7 +137,7 @@ class Pipeline:
 
     def save_state(self) -> None:
         self.state["processed"] = list(self.processed)[-MAX_PROCESSED:]
-        self.state["transcriptQueue"] = self.queue
+
         self.state["backfilled"] = sorted(self.backfilled)
         self.state["lastRun"] = now_ist().isoformat()
         self.store.set(STATE, self.state)
@@ -225,6 +230,7 @@ class Pipeline:
                     self.store.set(f"companies/{s}", {"holding": hist}, merge=True)
             except Exception as e:
                 log.warning("shareholding for %s failed: %s", s, e)
+            self.index_transcripts(s)
             self.backfilled.add(s)
             if len(self.backfilled) % 25 == 0:
                 self.save_state()  # long backfills never lose progress
@@ -689,10 +695,7 @@ class Pipeline:
                             self.notify.send(sym, f"⚠ {self.universe[sym]['name']}: {flag['label']}",
                                              " ".join(text.split())[:150] or desc, {"type": "flag"})
             if ann.is_transcript(desc, text) and url.lower().endswith(".pdf"):
-                key = "tr:" + url
-                if key not in self.processed and not any(q["url"] == url for q in self.queue):
-                    self.queue.append({"symbol": sym, "url": url, "filed": filed.isoformat(),
-                                       "n500": bool(self.universe[sym].get("n500"))})
+                self._new_transcripts.setdefault(sym, []).append({"url": url, "filed": filed.isoformat()})
             elif ann.is_concall_intimation(desc, text):
                 key = "int:" + (url or str(a.get("seq_id", "")))
                 if key in self.processed:
@@ -832,56 +835,154 @@ class Pipeline:
 
     # ----------------------------------------------------------- transcripts
 
-    def process_transcripts(self) -> None:
-        from summarize import QuotaExceeded, pdf_text, summarise
+    # Transcript index: transcripts/{sym} = {items: [{url, filed, period, done}]}
+    # One earnings-call transcript per quarter, last TRANSCRIPT_QUARTERS
+    # quarters. state["trPending"][sym] = {"n": pending, "latest": bool}.
 
-        # Nifty 500 first, newest first.
-        self.queue.sort(key=lambda q: q["filed"], reverse=True)
-        self.queue = [q for q in self.queue if q["symbol"] in self.universe]
-        self.queue.sort(key=lambda q: not q.get("n500"))  # stable: keeps newest-first within groups
+    @staticmethod
+    def _classify_call(filed: date) -> Tuple[str, str]:
+        """(period, kind). The first transcript within ~75 days of a quarter end
+        is that quarter's earnings call; others are analyst/investor calls."""
+        qend = ann.latest_quarter_end_before(filed)
+        kind = "earnings" if (filed - qend).days <= 75 else "analyst"
+        return quarter_label(qend), kind
+
+    def _merge_transcripts(self, sym: str, found: List[Dict]) -> None:
+        path = f"transcripts/{sym}"
+        doc = self.store.get(path) or {}
+        by_url: Dict[str, Dict] = {i["url"]: i for i in doc.get("items", [])}
+        earnings_periods = {i["period"] for i in by_url.values() if i.get("kind") == "earnings"}
+        cutoff = (self.today - timedelta(days=TRANSCRIPT_DAYS)).isoformat()
+        for f in sorted(found, key=lambda x: x["filed"]):
+            if f["url"] in by_url or f["filed"][:10] < cutoff:
+                continue
+            filed = date.fromisoformat(f["filed"][:10])
+            period, kind = self._classify_call(filed)
+            if kind == "earnings" and period in earnings_periods:
+                kind = "analyst"  # a second call in the same results window
+            if kind == "earnings":
+                earnings_periods.add(period)
+            cid = period if kind == "earnings" else f"{period}-{filed.strftime('%m%d')}"
+            by_url[f["url"]] = {"id": cid, "period": period, "kind": kind, "url": f["url"],
+                                "filed": f["filed"][:10], "done": False}
+        items = sorted(by_url.values(), key=lambda i: i["filed"], reverse=True)[:MAX_CALLS]
+        if items != doc.get("items"):
+            self.store.set(path, {"symbol": sym, "items": items})
+        self._set_pending(sym, items)
+
+    def _set_pending(self, sym: str, items: List[Dict]) -> None:
+        pend = self.state.setdefault("trPending", {})
+        n = sum(1 for i in items if not i.get("done"))
+        if n:
+            pend[sym] = {"n": n, "latest": bool(items) and not items[0].get("done")}
+        else:
+            pend.pop(sym, None)
+
+    def index_transcripts(self, sym: str) -> None:
+        """Find a company's earnings-call transcripts for the last ~5 quarters."""
+        try:
+            items = self.nse.announcements(self.today - timedelta(days=480), self.today, symbol=sym)
+        except Exception as e:
+            log.warning("transcript history for %s failed: %s", sym, e)
+            return
+        found = []
+        for a in items:
+            desc, text, url = a.get("desc") or "", a.get("attchmntText") or "", a.get("attchmntFile") or ""
+            if ann.is_transcript(desc, text) and url.lower().endswith(".pdf"):
+                filed = parse_nse_datetime(a.get("an_dt") or a.get("sort_date"))
+                if filed:
+                    found.append({"url": url, "filed": filed.date().isoformat()})
+        self._merge_transcripts(sym, found)
+        self.state.setdefault("trIndexed", [])
+        if sym not in self.state["trIndexed"]:
+            self.state["trIndexed"].append(sym)
+
+    def index_remaining_transcripts(self, minutes: float) -> None:
+        """Companies whose results history loaded before transcript indexing
+        existed: index them too (time-boxed, biggest first)."""
         import time as _t
+        deadline = _t.time() + minutes * 60
+        done = set(self.state.get("trIndexed", []))
+        todo = sorted((s for s in self.universe if s not in done),
+                      key=lambda s: -float(self.universe[s].get("mcap") or 0))
+        n = 0
+        for s in todo:
+            if _t.time() > deadline:
+                break
+            self.index_transcripts(s)
+            n += 1
+        if n:
+            log.info("transcripts indexed for %d more companies (%d/%d)", n,
+                     len(self.state.get("trIndexed", [])), len(self.universe))
+
+    def flush_transcripts(self) -> None:
+        # One-time migration of the old flat queue into the per-company index.
+        old = self.state.pop("transcriptQueue", None) or []
+        for q in old:
+            self._new_transcripts.setdefault(q["symbol"], []).append({"url": q["url"], "filed": q["filed"]})
+        for sym, found in self._new_transcripts.items():
+            if sym in self.universe:
+                self._merge_transcripts(sym, found)
+        self._new_transcripts = {}
+        pend = self.state.get("trPending", {})
+        for sym in [s for s in pend if s not in self.universe]:
+            del pend[sym]
+
+    def process_transcripts(self) -> None:
+        """Summarise pending transcripts: every company's latest call first
+        (biggest companies first), then earlier quarters. Time-boxed."""
+        from summarize import QuotaExceeded, pdf_text, summarise
+        import time as _t
+
+        self.flush_transcripts()
         deadline = _t.time() + SUMMARY_MINUTES * 60
-        done = 0
-        failures_in_a_row = 0
-        while (self.queue and done < self.max_summaries and failures_in_a_row < 5
-               and _t.time() < deadline):
-            item = self.queue[0]
-            sym, url = item["symbol"], item["url"]
-            if sym not in self.universe:
-                self.queue.pop(0)
+        done = failures_in_a_row = 0
+        pend = self.state.setdefault("trPending", {})
+
+        def order():
+            return sorted(pend, key=lambda s: (not pend[s].get("latest"),
+                                               -float(self.universe.get(s, {}).get("mcap") or 0)))
+
+        while pend and done < self.max_summaries and failures_in_a_row < 5 and _t.time() < deadline:
+            sym = order()[0]
+            tdoc = self.store.get(f"transcripts/{sym}") or {"items": []}
+            items = tdoc.get("items", [])
+            item = next((i for i in items if not i.get("done")), None)  # newest pending first
+            if item is None:
+                pend.pop(sym, None)
                 continue
+            period, url = item["period"], item["url"]
+            cid, kind = item.get("id", period), item.get("kind", "earnings")
             filed = date.fromisoformat(item["filed"])
-            company = self.store.get(f"companies/{sym}") or {}
-            period = next((q["period"] for q in company.get("quarters", [])
-                           if q["endDate"] < filed.isoformat()), None) \
-                or quarter_label(ann.latest_quarter_end_before(filed))
-            path = f"companies/{sym}/concalls/{period}"
-            if self.store.get(path):
-                self.queue.pop(0)
-                self.processed.add("tr:" + url)
+            path = f"companies/{sym}/concalls/{cid}"
+            existing = self.store.get(path)
+            if existing and existing.get("v", 1) >= 2:
+                item["done"] = True
+                self.store.set(f"transcripts/{sym}", tdoc)
+                self._set_pending(sym, items)
                 continue
+            company = self.store.get(f"companies/{sym}") or {}
+            all_calls = [c for _, c in self.store.list(f"companies/{sym}/concalls") if c.get("v", 1) >= 2]
+            earlier = [c for c in all_calls if (c.get("date") or "") < item["filed"]]
+            prev = max(earlier, key=lambda c: c.get("date") or "") if earlier else None
             try:
                 text = pdf_text(self.nse.download(url))
                 if len(text) < 2000:
                     raise ValueError("transcript text too short (scanned PDF?)")
-                earlier = [c for _, c in self.store.list(f"companies/{sym}/concalls")
-                           if _pkey(c.get("period", "")) < _pkey(period)]
-                prev = max(earlier, key=lambda c: _pkey(c["period"])) if earlier else None
-                result = summarise(text, name=self.universe[sym]["name"], symbol=sym,
-                                   period=period, previous=prev,
-                                   lite=filed < self.today - timedelta(days=3))
+                label = period if kind == "earnings" else f"{period} (analyst / investor call)"
+                result = summarise(text, name=self.universe[sym]["name"], symbol=sym, period=label,
+                                   previous=prev, lite=filed < self.today - timedelta(days=3))
             except QuotaExceeded:
-                log.warning("Gemini quota reached; %d transcripts left for next run", len(self.queue))
+                log.warning("Gemini quota reached; %d companies still have pending transcripts", len(pend))
                 break
             except Exception as e:
                 log.warning("transcript %s failed: %s", url, e)
                 failures_in_a_row += 1
                 item["tries"] = item.get("tries", 0) + 1
-                self.queue.pop(0)
-                if item["tries"] < 3:
-                    self.queue.append(item)
-                else:
-                    self.processed.add("tr:" + url)
+                if item["tries"] >= 3:
+                    item["done"] = True  # give up on unreadable transcripts
+                self.store.set(f"transcripts/{sym}", tdoc)
+                self._set_pending(sym, items)
                 continue
 
             call_date = filed
@@ -893,46 +994,84 @@ class Pipeline:
             except ValueError:
                 pass
             for g in result.get("guidanceItems", []):
-                g.update(madeIn=period, target=gd.format_target(g))
-            prev_guidance = [x for _, x in self.store.list(f"companies/{sym}/guidance")
-                             if prev and x.get("madeIn") == prev.get("period")]
+                g.update(madeIn=period, callId=cid, target=gd.format_target(g))
+            guidance_all = self.store.list(f"companies/{sym}/guidance")
+            prev_id = (prev or {}).get("id") or (prev or {}).get("period")
+            prev_guidance = [x for _, x in guidance_all
+                             if prev and (x.get("callId") or x.get("madeIn")) == prev_id]
             gdiff = gd.diff(result.get("guidanceItems", []), prev_guidance) if prev else []
-            self.store.set(path, {
-                "period": period, "date": call_date.isoformat(), "transcriptUrl": url,
+            doc = {
+                "v": 2, "id": cid, "kind": kind, "period": period,
+                "callType": result.get("callType") or ("earnings_call" if kind == "earnings" else "analyst_meet"),
+                "date": call_date.isoformat(), "filed": item["filed"], "transcriptUrl": url,
                 "tone": result.get("tone", "neutral"), "toneChange": result.get("toneChange") or None,
                 "summary": result.get("summary", {}), "model": _model_name(),
-                "changes": result.get("changes") or None,
-                "previousPeriod": prev.get("period") if prev else None,
+                "changes": result.get("changes") if prev else None,
+                "previousPeriod": (prev.get("id") or prev.get("period")) if prev else None,
                 "guidanceDiff": gdiff,
-            })
+            }
+            self.store.set(path, doc)
+            for gid, gx in guidance_all:  # replace this call's guidance items
+                if (gx.get("callId") or gx.get("madeIn")) == cid and gx.get("status") != "superseded":
+                    self.store.set(f"companies/{sym}/guidance/{gid}", {"madeIn": period, "metric": "other",
+                                                                     "statement": "", "status": "superseded"})
             for i, g in enumerate(result.get("guidanceItems", [])):
                 status, actual = gd.evaluate(g, company.get("quarters", []))
                 g["status"] = status
                 if actual is not None:
                     g["actual"] = f"{actual:g}"
-                self.store.set(f"companies/{sym}/guidance/{period}-{i}", g)
-            all_g = [x for _, x in self.store.list(f"companies/{sym}/guidance")]
+                self.store.set(f"companies/{sym}/guidance/{cid}-{i}", g)
+            all_g = [x for _, x in self.store.list(f"companies/{sym}/guidance") if x.get("status") != "superseded"]
             if company:
                 self.store.set(f"companies/{sym}", {"credibility": gd.credibility(all_g)}, merge=True)
-            self.add_event(call_date, {"symbol": sym, "type": "concall", "period": period,
-                                       "hasSummary": True, "note": f"{period} earnings call · summary ready"})
 
-            self.queue.pop(0)
-            self.processed.add("tr:" + url)
+            # An older call was added after a newer one: refresh the newer
+            # call's "what changed" and guidance diff against this one.
+            later = [c for c in all_calls if (c.get("date") or "") > doc["date"]]
+            if later:
+                nxt = min(later, key=lambda c: c.get("date") or "")
+                prev_of_next = next((c for c in all_calls
+                                     if (c.get("id") or c.get("period")) == nxt.get("previousPeriod")), None)
+                if prev_of_next is None or (prev_of_next.get("date") or "") < doc["date"]:
+                    self._recompare(sym, doc, nxt, all_g)
+
+            if filed >= self.today - timedelta(days=60):
+                self.add_event(call_date, {"symbol": sym, "type": "concall", "period": cid,
+                                           "hasSummary": True,
+                                           "note": f"{period} {'earnings' if kind == 'earnings' else 'analyst / investor'} call · summary ready"})
+            item["done"] = True
+            self.store.set(f"transcripts/{sym}", tdoc)
+            self._set_pending(sym, items)
             done += 1
             failures_in_a_row = 0
             n_flags = len(((result.get("summary") or {}).get("en") or {}).get("redFlags", []))
             cuts = [g for g in gdiff if g["direction"] in ("cut", "dropped")]
             if filed >= self.today - timedelta(days=2):
                 self.counters["summaries"] = self.counters.get("summaries", 0) + 1
-                body = "Key points, guidance and Q&A" + (f" · {n_flags} red flags" if n_flags else "")
+                body = "Detailed summary, guidance and Q&A" + (f" · {n_flags} red flags" if n_flags else "")
                 if cuts:
                     c0 = cuts[0]
                     body = (f"Guidance {c0['direction']}: {c0['label']} {c0['targetPeriod']} "
                             f"{c0.get('before', '')} → {c0.get('now', 'withdrawn')}. ") + body
-                self.notify.send(sym, f"{self.universe[sym]['name']} {period} concall summary ready",
-                                 body, {"type": "concall", "period": period})
-            log.info("%s %s concall summarised", sym, period)
+                self.notify.send(sym, f"{self.universe[sym]['name']} {period} "
+                                      f"{'concall' if kind == 'earnings' else 'analyst call'} summary ready",
+                                 body, {"type": "concall", "period": cid})
+            log.info("%s %s concall summarised", sym, cid)
+        log.info("concalls: %d summarised this run; %d companies still pending", done, len(pend))
+
+    def _recompare(self, sym: str, prev_doc: Dict, nxt: Dict, guidance: List[Dict]) -> None:
+        from summarize import QuotaExceeded, compare
+        pid, nid = prev_doc.get("id") or prev_doc["period"], nxt.get("id") or nxt["period"]
+        prev_items = [g for g in guidance if (g.get("callId") or g.get("madeIn")) == pid]
+        cur_items = [g for g in guidance if (g.get("callId") or g.get("madeIn")) == nid]
+        update = {"previousPeriod": pid, "guidanceDiff": gd.diff(cur_items, prev_items)}
+        try:
+            ch = compare(prev_doc, nxt, name=self.universe[sym]["name"], symbol=sym)
+            if ch:
+                update["changes"] = ch
+        except QuotaExceeded:
+            pass
+        self.store.set(f"companies/{sym}/concalls/{nid}", update, merge=True)
 
     # --------------------------------------------------------------- morning
 
@@ -1018,6 +1157,7 @@ def main() -> None:
             # and refreshes ratios as big batches land.
             before = len(pipe.backfilled)
             pipe.backfill()
+            pipe.index_remaining_transcripts(minutes=6)
             if len(pipe.backfilled) // 300 > before // 300:
                 pipe.state["screenerPriceDate"] = None  # force a ratios refresh
         pipe.process_board_meetings()

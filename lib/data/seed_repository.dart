@@ -188,6 +188,21 @@ class SeedRepository implements Repository {
       );
 
       _concalls[symbol] = [
+        Concall(
+          id: '${quarters[0].period}-1210',
+          kind: 'analyst',
+          callType: 'analyst_meet',
+          period: quarters[0].period,
+          date: quarters[0].endDate.add(const Duration(days: 70)),
+          tone: 'positive',
+          summary: const {
+            'en': SummaryLang(
+              overview:
+                  '[Sample] Analyst meet focused on capacity expansion and the new product pipeline.',
+              highlights: ['[Sample] Capacity to double by FY28.'],
+            ),
+          },
+        ),
         for (var k = 0; k < 3; k++)
           _sampleConcall(
             name,
@@ -382,6 +397,40 @@ class SeedRepository implements Repository {
       ],
       summary: {
         'en': SummaryLang(
+          overview:
+              '[Sample] $name delivered a steady ${q.period} with revenue of ₹${q.revenue!.toStringAsFixed(0)} Cr. '
+              'Management pointed to resilient demand in core markets, better pricing and cost control, '
+              'while flagging softness in exports and higher wage costs next quarter.',
+          financials: [
+            '[Sample] Revenue ₹${q.revenue!.toStringAsFixed(0)} Cr; EBITDA ₹${q.ebitda!.toStringAsFixed(0)} Cr.',
+            '[Sample] EBITDA margin ${q.ebitdaMargin!.toStringAsFixed(1)}%; PAT ₹${q.pat!.toStringAsFixed(0)} Cr.',
+          ],
+          segments: const [
+            SegmentNote(
+              '[Sample] Domestic',
+              'Volumes up high single digits; pricing held despite competition.',
+            ),
+            SegmentNote(
+              '[Sample] International',
+              'Europe soft; US steady; new client wins in the Middle East.',
+            ),
+          ],
+          outlook: const [
+            '[Sample] Demand expected to stay steady through the festive season.',
+          ],
+          margins: const [
+            '[Sample] Input costs eased 3% QoQ; wage hikes due in Q3.',
+          ],
+          capex: const [
+            '[Sample] ₹800 Cr capex planned for FY27; new plant commissioning in Q4.',
+          ],
+          balanceSheet: const [
+            '[Sample] Net cash position; receivable days down to 62.',
+          ],
+          risks: const ['[Sample] Export slowdown and currency volatility.'],
+          quotes: const [
+            '[Sample] "We remain confident of double-digit growth over the medium term."',
+          ],
           highlights: [
             '[Sample] $name reported revenue of ₹${q.revenue!.toStringAsFixed(0)} Cr for ${q.period}.',
             '[Sample] EBITDA margin at ${q.ebitdaMargin!.toStringAsFixed(1)}%; management cited operating leverage.',

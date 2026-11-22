@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -50,14 +49,11 @@ class _NewsTabState extends ConsumerState<NewsTab> {
               showSelectedIcon: false,
               style: const ButtonStyle(visualDensity: VisualDensity.compact),
               segments: [
-                ButtonSegment(value: _Source.all, label: Text(tr('All'))),
-                ButtonSegment(
-                  value: _Source.media,
-                  label: Text(tr('In the news')),
-                ),
+                ButtonSegment(value: _Source.all, label: Text('All')),
+                ButtonSegment(value: _Source.media, label: Text('In the news')),
                 ButtonSegment(
                   value: _Source.exchange,
-                  label: Text(tr('NSE filings')),
+                  label: Text('NSE filings'),
                 ),
               ],
               selected: {_source},
@@ -235,7 +231,7 @@ class _NewsCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      tr('View filing'),
+                      'View filing',
                       style: TextStyle(color: scheme.primary, fontSize: 13),
                     ),
                   ],

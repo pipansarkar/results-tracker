@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -51,7 +50,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(tr('Results Calendar')),
+          title: Text('Results Calendar'),
           actions: [
             IconButton(
               icon: const Icon(Icons.search),
@@ -60,8 +59,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           ],
           bottom: TabBar(
             tabs: [
-              Tab(text: tr('Upcoming')),
-              Tab(text: tr('Past')),
+              Tab(text: 'Upcoming'),
+              Tab(text: 'Past'),
             ],
           ),
         ),
@@ -89,7 +88,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                       ),
                     ),
                   FilterChip(
-                    label: Text(tr('Watchlist')),
+                    label: Text('Watchlist'),
                     selected: _watchlistOnly,
                     onSelected: (v) => setState(() => _watchlistOnly = v),
                   ),

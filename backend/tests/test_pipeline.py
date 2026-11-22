@@ -349,3 +349,24 @@ def test_shp_older_filings_store_percentages():
     <c:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="P">75</c:ShareholdingAsAPercentageOfTotalNumberOfShares>
     </x:xbrl>"""
     assert ownership.parse_shp(xml.encode())["promoter"] == 75.0
+
+
+def test_transcript_index_includes_analyst_calls(tmp_path):
+    import run
+    store = LocalStore(str(tmp_path))
+    pipe = run.Pipeline(store, None, Notifier(dry_run=True),
+                        {"X": {"symbol": "X", "name": "X", "mcap": 1000}}, 0)
+    pipe.today = date(2026, 12, 30)
+    found = [
+        {"url": "q2.pdf", "filed": "2026-10-20"},       # Q2FY27 earnings call
+        {"url": "q2b.pdf", "filed": "2026-10-28"},      # second call same window -> analyst
+        {"url": "meet.pdf", "filed": "2026-12-23"},     # analyst / investor meet
+        {"url": "q1.pdf", "filed": "2026-07-25"},
+        {"url": "old.pdf", "filed": "2025-09-01"},      # older than ~400 days: skipped
+    ]
+    pipe._merge_transcripts("X", found)
+    items = store.get("transcripts/X")["items"]
+    assert [(i["id"], i["kind"]) for i in items] == [
+        ("Q2FY27-1223", "analyst"), ("Q2FY27-1028", "analyst"),
+        ("Q2FY27", "earnings"), ("Q1FY27", "earnings")]
+    assert pipe.state["trPending"]["X"] == {"n": 4, "latest": True}

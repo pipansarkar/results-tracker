@@ -61,6 +61,7 @@ class QuarterBarChart extends StatelessWidget {
             titlesData: _titles(labels),
             barTouchData: BarTouchData(
               touchTooltipData: BarTouchTooltipData(
+                getTooltipColor: (_) => const Color(0xEE1F2937),
                 getTooltipItem: (group, _, rod, _) => BarTooltipItem(
                   unit == '₹ Cr'
                       ? '${labels[group.x]}\n₹${rod.toY.toStringAsFixed(0)} Cr'
@@ -122,9 +123,36 @@ class MarginLineChart extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 24, 0),
             child: LineChart(
               LineChartData(
-                gridData: const FlGridData(show: false),
                 borderData: FlBorderData(show: false),
-                titlesData: _titles(labels),
+                titlesData: _titles(labels).copyWith(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 36,
+                      getTitlesWidget: (v, meta) => Text(
+                        '${v.toStringAsFixed(0)}%',
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                    ),
+                  ),
+                ),
+                gridData: const FlGridData(show: true, drawVerticalLine: false),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) => const Color(0xEE1F2937),
+                    getTooltipItems: (spots) => [
+                      for (final s in spots)
+                        LineTooltipItem(
+                          '${s.barIndex == 0 ? 'EBITDA' : 'Net'} ${s.y.toStringAsFixed(1)}%',
+                          const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 lineBarsData: [_line(ebitda, primary), _line(pat, gainColor)],
               ),
             ),

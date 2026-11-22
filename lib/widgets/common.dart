@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import '../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/format.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
+import '../models/models.dart';
 
 /// Small coloured chip showing a growth percentage.
 class GrowthChip extends StatelessWidget {
@@ -68,7 +68,7 @@ class SampleDataBanner extends ConsumerWidget {
       color: scheme.tertiaryContainer,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Text(
-        tr('Sample data: connect Firebase to see live NSE results'),
+        'Sample data: connect Firebase to see live NSE results',
         style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
       ),
     );
@@ -144,7 +144,7 @@ class StockSearchBar extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
     child: SearchBar(
-      hintText: tr('Search companies above ₹500 Cr'),
+      hintText: 'Search companies above ₹500 Cr',
       leading: const Icon(Icons.search),
       elevation: const WidgetStatePropertyAll(0),
       onTap: () => GoRouter.of(context).push('/search'),
@@ -152,4 +152,38 @@ class StockSearchBar extends StatelessWidget {
       keyboardType: TextInputType.none,
     ),
   );
+}
+
+/// Coloured side label for a concall's type.
+class CallTypeLabel extends StatelessWidget {
+  const CallTypeLabel(this.c, {super.key});
+  final Concall c;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (c.typeLabel) {
+      'Earnings call' => const Color(0xFF2563EB),
+      'Analyst meet' => const Color(0xFF7C3AED),
+      'Investor call' => const Color(0xFF0891B2),
+      'Investor conference' => const Color(0xFFDB2777),
+      'AGM' => const Color(0xFF059669),
+      _ => Colors.grey,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        c.typeLabel,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }

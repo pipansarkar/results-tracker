@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/i18n.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,11 +17,11 @@ class WatchlistScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(tr('Watchlist')),
+        title: Text('Watchlist'),
         actions: [
           if (symbols.length >= 2)
             IconButton(
-              tooltip: tr('Compare watchlist'),
+              tooltip: 'Compare watchlist',
               icon: const Icon(Icons.compare_arrows),
               onPressed: () => context.push(
                 '/compare?s=${symbols.take(4).map(Uri.encodeComponent).join(',')}',
@@ -52,13 +51,12 @@ class WatchlistScreen extends ConsumerWidget {
             child: symbols.isEmpty
                 ? EmptyState(
                     icon: Icons.star_border,
-                    message: tr(
-                      'Add stocks to get alerts for results and concalls.',
-                    ),
+                    message:
+                        'Add stocks to get alerts for results and concalls.',
                     action: FilledButton.icon(
                       onPressed: () => context.push('/search'),
                       icon: const Icon(Icons.search),
-                      label: Text(tr('Find a stock')),
+                      label: Text('Find a stock'),
                     ),
                   )
                 : ListView(children: [for (final s in symbols) _WatchTile(s)]),
@@ -90,17 +88,17 @@ class _WatchTile extends ConsumerWidget {
                 Text('${c.latest!.period} · Rev ${crore(c.latest!.revenue)}'),
                 GrowthChip(
                   pctChange(c.latest!.revenue, c.yearAgoQuarter?.revenue),
-                  label: tr('YoY'),
+                  label: 'YoY',
                 ),
                 GrowthChip(
                   pctChange(c.latest!.pat, c.yearAgoQuarter?.pat),
-                  label: tr('PAT'),
+                  label: 'PAT',
                 ),
               ],
             ),
           ),
-          AsyncLoading() => Text(tr('Loading…')),
-          _ => Text(tr('No results yet')),
+          AsyncLoading() => Text('Loading…'),
+          _ => Text('No results yet'),
         },
         trailing: WatchButton(symbol),
       ),

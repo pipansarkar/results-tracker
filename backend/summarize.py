@@ -66,99 +66,153 @@ def pdf_text(content: bytes) -> str:
     return "\n".join((p.extract_text() or "") for p in reader.pages)
 
 
-_LANG = {
+_STR_LIST = {"type": "ARRAY", "items": {"type": "STRING"}}
+
+# Detailed, English-only summary (version 2).
+_SUMMARY = {
     "type": "OBJECT",
     "properties": {
-        "highlights": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "guidance": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "overview": {"type": "STRING"},
+        "highlights": _STR_LIST,
+        "financials": _STR_LIST,
+        "segments": {"type": "ARRAY", "items": {
+            "type": "OBJECT",
+            "properties": {"name": {"type": "STRING"}, "commentary": {"type": "STRING"}},
+            "required": ["name", "commentary"],
+        }},
+        "outlook": _STR_LIST,
+        "margins": _STR_LIST,
+        "capex": _STR_LIST,
+        "balanceSheet": _STR_LIST,
+        "guidance": _STR_LIST,
         "qa": {"type": "ARRAY", "items": {
             "type": "OBJECT",
-            "properties": {"q": {"type": "STRING"}, "a": {"type": "STRING"}},
+            "properties": {"q": {"type": "STRING"}, "a": {"type": "STRING"},
+                           "analyst": {"type": "STRING", "nullable": True}},
             "required": ["q", "a"],
         }},
-        "redFlags": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "risks": _STR_LIST,
+        "redFlags": _STR_LIST,
+        "quotes": _STR_LIST,
     },
-    "required": ["highlights", "guidance", "qa", "redFlags"],
+    "required": ["overview", "highlights", "financials", "outlook", "guidance", "qa", "risks", "redFlags"],
 }
+
+_CHANGES = {
+    "type": "OBJECT",
+    "properties": {
+        "summary": {"type": "STRING"},
+        "newTopics": _STR_LIST,
+        "droppedTopics": _STR_LIST,
+        "guidanceShifts": _STR_LIST,
+        "toneShift": {"type": "STRING"},
+    },
+    "required": ["summary", "newTopics", "droppedTopics", "guidanceShifts"],
+}
+
+_GUIDANCE_ITEMS = {"type": "ARRAY", "items": {
+    "type": "OBJECT",
+    "properties": {
+        "statement": {"type": "STRING"},
+        "metric": {"type": "STRING", "enum": [
+            "revenue_growth_yoy", "pat_growth_yoy", "ebitda_margin", "revenue", "other"]},
+        "low": {"type": "NUMBER", "nullable": True},
+        "high": {"type": "NUMBER", "nullable": True},
+        "targetPeriod": {"type": "STRING"},
+    },
+    "required": ["statement", "metric", "targetPeriod"],
+}}
 
 SCHEMA = {
     "type": "OBJECT",
     "properties": {
         "callDate": {"type": "STRING", "nullable": True},
+        "callType": {"type": "STRING", "enum": [
+            "earnings_call", "analyst_meet", "investor_call", "investor_conference", "agm", "other"]},
         "tone": {"type": "STRING", "enum": ["positive", "neutral", "cautious"]},
         "toneChange": {"type": "STRING"},
-        "summary": {
-            "type": "OBJECT",
-            "properties": {"en": _LANG, "bn": _LANG, "hi": _LANG},
-            "required": ["en", "bn", "hi"],
-        },
-        "changes": {
-            "type": "OBJECT",
-            "properties": {
-                "summary": {"type": "STRING"},
-                "newTopics": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "droppedTopics": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "guidanceShifts": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "toneShift": {"type": "STRING"},
-                "bn": {"type": "STRING"},
-                "hi": {"type": "STRING"},
-            },
-            "required": ["summary", "newTopics", "droppedTopics", "guidanceShifts"],
-        },
-        "guidanceItems": {"type": "ARRAY", "items": {
-            "type": "OBJECT",
-            "properties": {
-                "statement": {"type": "STRING"},
-                "metric": {"type": "STRING", "enum": [
-                    "revenue_growth_yoy", "pat_growth_yoy", "ebitda_margin", "revenue", "other"]},
-                "low": {"type": "NUMBER", "nullable": True},
-                "high": {"type": "NUMBER", "nullable": True},
-                "targetPeriod": {"type": "STRING"},
-            },
-            "required": ["statement", "metric", "targetPeriod"],
-        }},
+        "summary": _SUMMARY,
+        "changes": _CHANGES,
+        "guidanceItems": _GUIDANCE_ITEMS,
     },
     "required": ["tone", "summary", "guidanceItems"],
 }
 
-PROMPT = """You are an equity research assistant summarising an Indian listed company's
-earnings conference call transcript for retail investors.
+PROMPT = """You are a senior equity research analyst writing a DETAILED summary of an
+Indian listed company's earnings conference call for serious retail investors.
 
 Company: {name} ({symbol}). Quarter: {period}.
 {previous}
-Rules:
-- Facts only, taken from the transcript. No buy/sell views, no price targets.
-- Numbers in ₹ crore where possible. Keep each bullet under 30 words.
-- highlights: 5-8 key points (growth drivers, margins, segments, order book, capex).
-- guidance: every forward-looking statement by management, with numbers when given.
-- qa: the 5-8 most important analyst questions and management's answers, condensed.
-- redFlags: real concerns only (auditor issues, rising receivables or debt, weak demand,
-  repeated excuses, evasive answers, guidance cuts, key exits). Empty list if none.
-- changes: compare with the PREVIOUS CALL section if given (otherwise use
-  empty lists and summary "First call tracked"). summary: 1-2 lines on what
-  changed. newTopics: themes discussed now that weren't last time.
-  droppedTopics: themes management stressed last time but didn't mention or
-  skipped now (these can be quiet red flags). guidanceShifts: each guidance
-  raised, cut, reiterated or withdrawn vs last call, with numbers.
-  toneShift: one line. bn/hi: the summary line in Bengali and Hindi.
-- callDate: the date the call was held, as YYYY-MM-DD, if stated; otherwise null.
-- tone: overall management tone. toneChange: one line comparing with the previous call
-  if provided, otherwise "".
-- summary.bn and summary.hi: faithful Bengali and Hindi translations of summary.en,
-  in simple everyday language. Keep company names, numbers and units as-is.
-- guidanceItems: only quantitative guidance that can be checked against reported results.
-  targetPeriod is a quarter label like "Q3FY27" or a fiscal year like "FY27" (Indian FY
-  ends in March). low/high are numbers in % for growth/margin metrics or ₹ crore for
-  revenue. "about 15%" -> low=15, high=15. "15-18%" -> low=15, high=18.
-  "at least 20%" -> low=20, high=null.
+Write in English. Facts only, from the transcript; no buy/sell views or price
+targets. Use ₹ crore and exact numbers, growth rates and margins wherever the
+call gives them. Be specific: name products, geographies, clients, plants.
+
+summary:
+- overview: 5-7 sentences: the quarter in context, what drove it, management's
+  overall message.
+- highlights: 8-12 key takeaways.
+- financials: every financial number discussed (revenue, EBITDA, margins, PAT,
+  growth YoY/QoQ, order book, volumes, realisations, ARPU, NIM, GNPA, etc.).
+- segments: one entry per business segment / vertical / geography discussed,
+  with 2-4 sentences of commentary each (empty list if none).
+- outlook: demand environment, industry trends, pipeline, order inflows.
+- margins: costs, pricing, raw materials, wage hikes, operating leverage.
+- capex: capacity expansion, new plants, investments, acquisitions, timelines.
+- balanceSheet: debt, cash, working capital, receivables, capital allocation,
+  dividends/buybacks.
+- guidance: every forward-looking statement, with numbers and periods.
+- qa: the 10-15 most important analyst questions and management's answers,
+  each answer 2-4 sentences. analyst = the analyst's firm if stated.
+- risks: risks and headwinds management or analysts raised.
+- redFlags: real concerns only (auditor issues, rising receivables/debt, weak
+  demand, repeated excuses, evasive answers, guidance cuts, key exits). Empty
+  list if none.
+- quotes: 3-5 short notable direct quotes from management.
+tone: overall management tone. toneChange: one line vs the previous call if
+given, else "".
+changes: compare with the PREVIOUS CALL section if given (otherwise empty
+lists and summary "First call tracked"). summary: 2-3 lines on what changed.
+newTopics; droppedTopics (stressed last time, not mentioned or avoided now);
+guidanceShifts (raised / cut / reiterated / withdrawn, with numbers); toneShift.
+callDate: the date of the call as YYYY-MM-DD if stated, else null.
+callType: earnings_call (discussing quarterly/annual results), analyst_meet
+(analyst / institutional investor meet, site or plant visit, analyst day),
+investor_call (other group call with investors), investor_conference (a
+broker-hosted conference), agm (annual general meeting), or other.
+guidanceItems: only quantitative guidance checkable against reported results.
+targetPeriod is a quarter like "Q3FY27" or fiscal year like "FY27" (Indian FY
+ends March). low/high in % for growth/margin metrics or ₹ crore for revenue.
+"about 15%" -> low=15, high=15. "15-18%" -> 15, 18. "at least 20%" -> 20, null.
 
 Transcript:
 ---
 {transcript}
 ---"""
 
+COMPARE_PROMPT = """Compare two earnings calls of {name} ({symbol}) and say what changed in
+{period} versus {prev_period}. Facts only, English, specific, with numbers.
+summary: 2-3 lines. newTopics: themes in {period} not discussed in {prev_period}.
+droppedTopics: themes stressed in {prev_period} but missing or avoided in
+{period}. guidanceShifts: each guidance raised / cut / reiterated / withdrawn
+with before -> after numbers. toneShift: one line.
 
-_lite: Optional[str] = None
+{prev_period} CALL:
+{prev}
+
+{period} CALL:
+{cur}"""
+
+
+def _brief(s: Dict[str, Any]) -> str:
+    """Compact text version of a stored English summary (for comparisons)."""
+    en = (s.get("summary") or {}).get("en") or {}
+    parts = [f"Tone: {s.get('tone')}", f"Overview: {en.get('overview', '')}"]
+    for k in ("highlights", "financials", "outlook", "margins", "capex", "guidance", "risks"):
+        if en.get(k):
+            parts.append(f"{k}: " + " | ".join(en[k][:12]))
+    if en.get("qa"):
+        parts.append("Q&A: " + " | ".join(x.get("q", "") for x in en["qa"][:12]))
+    return "\n".join(parts)
 
 
 def summarise(text: str, *, name: str, symbol: str, period: str,
@@ -175,13 +229,7 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
         raise QuotaExceeded("GEMINI_API_KEY is not set")
     prev = ""
     if previous:
-        en = (previous.get("summary") or {}).get("en") or {}
-        prev = ("PREVIOUS CALL ({p}), tone: {t}\nKey points: {h}\nGuidance: {g}\n"
-                "Analyst questions: {q}\n".format(
-                    p=previous.get("period"), t=previous.get("tone"),
-                    h=" | ".join(en.get("highlights", [])[:8]),
-                    g=" | ".join(en.get("guidance", [])[:8]),
-                    q=" | ".join(x.get("q", "") for x in en.get("qa", [])[:8])))
+        prev = f"PREVIOUS CALL ({previous.get('period')}):\n{_brief(previous)}\n"
 
     client = genai.Client(api_key=key)
     prompt = PROMPT.format(name=name, symbol=symbol, period=period,
@@ -208,7 +256,9 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
                     temperature=0.2,
                 ),
             )
-            return json.loads(resp.text)
+            out = json.loads(resp.text)
+            out["summary"] = {"en": out.get("summary") or {}}
+            return out
         except json.JSONDecodeError:
             if attempt >= 2:
                 raise
@@ -240,3 +290,36 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
                 raise QuotaExceeded(msg[:300]) from e
             raise
     raise RuntimeError("unreachable")
+
+
+def compare(prev: Dict[str, Any], cur: Dict[str, Any], *, name: str, symbol: str,
+            api_key: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """'What changed' between two stored summaries (small, cheap call on
+    Flash-Lite). Used when an older call is added after a newer one."""
+    from google import genai
+    from google.genai import types
+
+    key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return None
+    client = genai.Client(api_key=key)
+    global _lite
+    if _lite is None:
+        try:
+            _lite = pick_model(client, lite=True)
+        except QuotaExceeded:
+            _lite = ""
+    prompt = COMPARE_PROMPT.format(name=name, symbol=symbol, period=cur.get("period"),
+                                   prev_period=prev.get("period"), prev=_brief(prev), cur=_brief(cur))
+    try:
+        resp = client.models.generate_content(
+            model=_lite or resolved_model(client), contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json",
+                                               response_schema=_CHANGES, temperature=0.2))
+        return json.loads(resp.text)
+    except Exception as e:
+        msg = str(e)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            raise QuotaExceeded(msg[:200]) from e
+        log.warning("compare failed for %s: %s", symbol, e)
+        return None
