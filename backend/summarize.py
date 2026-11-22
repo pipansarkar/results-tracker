@@ -10,16 +10,49 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import os
 import time
 from typing import Any, Dict, Optional
 
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# Empty = pick the newest Flash model this key can use (Google retires
+# model names over time). Set GEMINI_MODEL to pin one.
+MODEL = os.environ.get("GEMINI_MODEL", "")
+_resolved: Optional[str] = None
 MAX_CHARS = int(os.environ.get("TRANSCRIPT_MAX_CHARS", "150000"))
 
 
 class QuotaExceeded(Exception):
-    pass
+    """Stop summarising for this run; queued transcripts stay queued."""
+
+
+def _version_key(name: str):
+    nums = [int(x) for x in re.findall(r"\d+", name.split("/")[-1])]
+    return nums
+
+
+def pick_model(client) -> str:
+    """Newest stable 'flash' model (not lite/preview/tts/image) that supports
+    generateContent, from the key's own model list."""
+    names = []
+    for m in client.models.list():
+        name = (m.name or "").split("/")[-1]
+        actions = getattr(m, "supported_actions", None) or []
+        if "flash" not in name or (actions and "generateContent" not in actions):
+            continue
+        if re.search(r"lite|preview|exp|tts|image|audio|live|thinking", name):
+            continue
+        names.append(name)
+    if not names:
+        raise QuotaExceeded("no usable Gemini Flash model found for this key")
+    return max(names, key=_version_key)
+
+
+def resolved_model(client) -> str:
+    global _resolved
+    if _resolved is None:
+        _resolved = MODEL or pick_model(client)
+    return _resolved
 
 
 def pdf_text(content: bytes) -> str:
@@ -123,7 +156,7 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     for attempt in range(3):
         try:
             resp = client.models.generate_content(
-                model=MODEL,
+                model=resolved_model(client),
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -142,5 +175,8 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
                     raise QuotaExceeded(msg) from e
                 time.sleep(30 * (attempt + 1))  # per-minute limit: wait and retry
                 continue
+            if "404" in msg or "NOT_FOUND" in msg or "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
+                # Model/key problem, not this transcript's fault: stop the batch.
+                raise QuotaExceeded(msg[:300]) from e
             raise
     raise RuntimeError("unreachable")

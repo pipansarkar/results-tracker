@@ -51,7 +51,6 @@ CAL_FUTURE_DAYS = 45
 UNIVERSE_REFRESH_DAYS = 7
 BACKFILL_PER_RUN = int(os.environ.get("BACKFILL_PER_RUN", "15"))
 HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def now_ist() -> datetime:
@@ -86,6 +85,13 @@ class Pipeline:
             self.state["processed"] = [k for k in self.state.get("processed", []) if not k.startswith("res:")]
             self.state["backfilled"] = []
             self.state["schema"] = SCHEMA
+        if self.state.get("trReset") != 1:
+            # Transcripts dropped while the Gemini model was unavailable:
+            # forget them so the announcement history walk queues them again
+            # (existing summaries are skipped, so nothing is redone).
+            self.state["processed"] = [k for k in self.state.get("processed", []) if not k.startswith("tr:")]
+            self.state["historyCursor"] = None
+            self.state["trReset"] = 1
         self.processed = set(self.state.get("processed", []))
         self.queue: List[Dict] = self.state.get("transcriptQueue", [])
         self.backfilled = set(self.state.get("backfilled", []))
@@ -342,7 +348,7 @@ class Pipeline:
         past 60 days of concalls / investor meets fill in automatically."""
         windows: List[Tuple[date, date]] = [(self.today - timedelta(days=days), self.today)]
         if history:
-            cursor = date.fromisoformat(self.state.get("historyCursor", (self.today - timedelta(days=days)).isoformat()))
+            cursor = date.fromisoformat(self.state.get("historyCursor") or (self.today - timedelta(days=days)).isoformat())
             oldest = self.today - timedelta(days=CAL_PAST_DAYS)
             if cursor > oldest:
                 start = max(oldest, cursor - timedelta(days=HISTORY_DAYS_PER_RUN))
@@ -434,7 +440,8 @@ class Pipeline:
         self.queue.sort(key=lambda q: q["filed"], reverse=True)
         self.queue.sort(key=lambda q: not q.get("n500"))  # stable: keeps newest-first within groups
         done = 0
-        while self.queue and done < self.max_summaries:
+        failures_in_a_row = 0
+        while self.queue and done < self.max_summaries and failures_in_a_row < 5:
             item = self.queue[0]
             sym, url = item["symbol"], item["url"]
             if sym not in self.universe:
@@ -463,6 +470,7 @@ class Pipeline:
                 break
             except Exception as e:
                 log.warning("transcript %s failed: %s", url, e)
+                failures_in_a_row += 1
                 item["tries"] = item.get("tries", 0) + 1
                 self.queue.pop(0)
                 if item["tries"] < 3:
@@ -482,7 +490,7 @@ class Pipeline:
             self.store.set(path, {
                 "period": period, "date": call_date.isoformat(), "transcriptUrl": url,
                 "tone": result.get("tone", "neutral"), "toneChange": result.get("toneChange") or None,
-                "summary": result.get("summary", {}), "model": GEMINI_MODEL,
+                "summary": result.get("summary", {}), "model": _model_name(),
             })
             for i, g in enumerate(result.get("guidanceItems", [])):
                 g.update(madeIn=period, target=gd.format_target(g))
@@ -500,6 +508,7 @@ class Pipeline:
             self.queue.pop(0)
             self.processed.add("tr:" + url)
             done += 1
+            failures_in_a_row = 0
             n_flags = len(((result.get("summary") or {}).get("en") or {}).get("redFlags", []))
             if filed >= self.today - timedelta(days=2):
                 self.notify.send(sym, f"{self.universe[sym]['name']} {period} concall summary ready",
@@ -525,6 +534,11 @@ class Pipeline:
             else:
                 self.notify.send(e["symbol"], f"{e['name']} results expected today",
                                  "Board meeting to approve quarterly results.", {"type": "results_today"})
+
+
+def _model_name() -> str:
+    import summarize
+    return summarize._resolved or summarize.MODEL or "gemini"
 
 
 def load_universe(store: Store) -> Dict[str, Dict[str, str]]:

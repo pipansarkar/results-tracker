@@ -235,3 +235,21 @@ def test_week_id_is_monday():
 ])
 def test_is_earnings_call_text(body, expected):
     assert ann.is_earnings_call_text(body) is expected
+
+
+def test_pick_model_prefers_newest_stable_flash():
+    import summarize
+
+    class M:
+        def __init__(self, name, actions=("generateContent",)):
+            self.name, self.supported_actions = "models/" + name, list(actions)
+
+    class Client:
+        class models:
+            @staticmethod
+            def list():
+                return [M("gemini-2.5-flash"), M("gemini-3.8-flash"), M("gemini-3.8-flash-lite"),
+                        M("gemini-4.0-flash-preview"), M("gemini-3.8-pro"),
+                        M("text-embedding-004", ("embedContent",)), M("gemini-3.10-flash-tts")]
+
+    assert summarize.pick_model(Client) == "gemini-3.8-flash"
