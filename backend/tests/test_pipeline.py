@@ -506,3 +506,46 @@ def test_quota_budget(tmp_path):
     assert pipe2.used()[1] >= 6  # carried over within the same quota day
     assert run._quota_error(Exception("429 Quota exceeded."))
     assert not run._quota_error(ValueError("bad xbrl"))
+
+
+def test_full_qa_chunking_and_merge(monkeypatch, tmp_path):
+    import json as _json
+    import summarize as sm
+    from google import genai
+    from store import LocalStore
+
+    intro = "Opening remarks. " * 400
+    qa_part = "\n".join(f"Analyst {i}: question {i} about margins?\nCFO: answer {i}." for i in range(400))
+    text = intro + "\nWe will now begin the question-and-answer session.\n" + qa_part
+    chunks = sm.qa_chunks(text, size=5000)
+    assert len(chunks) > 1 and "Opening remarks" not in chunks[0]
+    assert sum(len(c) for c in chunks) >= len(qa_part)
+
+    calls = []
+
+    class _Models:
+        def generate_content(self, **kw):
+            calls.append(kw["contents"])
+            n = len(calls)
+            class R:
+                text = _json.dumps([{"analyst": f"A{n}", "firm": "", "topic": "Margins",
+                                     "q": f"Q{n}?", "a": "Ans.", "answeredBy": None},
+                                    {"topic": "x", "q": "  ", "a": "skip"}])
+            return R()
+
+    class _Client:
+        def __init__(self, **kw):
+            self.models = _Models()
+
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setattr(sm, "_lite", "flash-lite")
+    monkeypatch.setattr(sm, "qa_chunks", lambda t: ["c1", "c2", "c3"])
+    qa = sm.full_qa("t", name="X", symbol="X", period="Q2FY27", api_key="k")
+    assert [x["q"] for x in qa] == ["Q1?", "Q2?", "Q3?"] and qa[0]["firm"] is None
+    assert "part 2 of 3" in calls[1]
+
+    st = LocalStore(str(tmp_path))
+    st.set("c/1", {"v": 3, "summary": {"en": {"overview": "o", "qa": [1]}}})
+    st.set("c/1", {"summary": {"en": {"qa": [1, 2, 3]}}, "qaV": 1}, merge=True)
+    d = st.get("c/1")
+    assert d["summary"]["en"] == {"overview": "o", "qa": [1, 2, 3]} and d["v"] == 3

@@ -351,37 +351,198 @@ class _ToneChip extends StatelessWidget {
   }
 }
 
-class _QaList extends StatelessWidget {
+class _QaList extends StatefulWidget {
   const _QaList(this.qa);
   final List<QaPair> qa;
 
   @override
+  State<_QaList> createState() => _QaListState();
+}
+
+class _QaListState extends State<_QaList> {
+  String _q = '';
+  String? _topic;
+  bool _expandAll = false;
+
+  @override
   Widget build(BuildContext context) {
+    final qa = widget.qa;
     if (qa.isEmpty) {
       return const EmptyState(
         icon: Icons.forum_outlined,
         message: 'No Q&A captured.',
       );
     }
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final topics = <String, int>{};
+    for (final p in qa) {
+      if ((p.topic ?? '').isNotEmpty) {
+        topics[p.topic!] = (topics[p.topic!] ?? 0) + 1;
+      }
+    }
+    final topicList = topics.keys.toList()
+      ..sort((a, b) => topics[b]!.compareTo(topics[a]!));
+    final needle = _q.toLowerCase();
+    final shown = [
+      for (var i = 0; i < qa.length; i++)
+        if ((_topic == null || qa[i].topic == _topic) &&
+            (needle.isEmpty ||
+                '${qa[i].q} ${qa[i].a} ${qa[i].askedBy}'.toLowerCase().contains(
+                  needle,
+                )))
+          (i + 1, qa[i]),
+    ];
+    final analysts = {
+      for (final p in qa)
+        if (p.askedBy.isNotEmpty) p.askedBy,
+    }.length;
+
     return ListView(
       padding: const EdgeInsets.all(8),
       children: [
-        for (final p in qa)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 0, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${qa.length} questions'
+                  '${analysts > 0 ? ' from $analysts analysts' : ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => _expandAll = !_expandAll),
+                icon: Icon(
+                  _expandAll ? Icons.unfold_less : Icons.unfold_more,
+                  size: 18,
+                ),
+                label: Text(_expandAll ? 'Collapse all' : 'Expand all'),
+              ),
+            ],
+          ),
+        ),
+        if (qa.length > 6)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search questions & answers',
+                prefixIcon: Icon(Icons.search),
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) => setState(() => _q = v.trim()),
+            ),
+          ),
+        if (topicList.length > 1)
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: const Text('All topics'),
+                    selected: _topic == null,
+                    onSelected: (_) => setState(() => _topic = null),
+                  ),
+                ),
+                for (final tp in topicList)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text('$tp (${topics[tp]})'),
+                      selected: _topic == tp,
+                      onSelected: (_) =>
+                          setState(() => _topic = _topic == tp ? null : tp),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        if (shown.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: Text('No questions match.')),
+          ),
+        for (final (n, p) in shown)
           Card(
             child: ExpansionTile(
+              key: ValueKey('qa$n$_expandAll'),
               shape: const Border(),
-              initiallyExpanded: qa.length <= 4,
-              leading: const Icon(Icons.help_outline),
+              initiallyExpanded: _expandAll || qa.length <= 4,
+              leading: CircleAvatar(
+                radius: 14,
+                backgroundColor: scheme.primaryContainer,
+                child: Text(
+                  '$n',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
               title: Text(
                 p.q,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: (p.analyst ?? '').isEmpty ? null : Text(p.analyst!),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if ((p.topic ?? '').isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          p.topic!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onSecondaryContainer,
+                          ),
+                        ),
+                      ),
+                    if (p.askedBy.isNotEmpty)
+                      Text(p.askedBy, style: t.bodySmall),
+                  ],
+                ),
+              ),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(p.a, style: const TextStyle(height: 1.4)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if ((p.answeredBy ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'Answer: ${p.answeredBy}',
+                            style: t.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary,
+                            ),
+                          ),
+                        ),
+                      Text(p.a, style: const TextStyle(height: 1.4)),
+                    ],
+                  ),
                 ),
               ],
             ),

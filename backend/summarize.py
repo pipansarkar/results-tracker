@@ -14,13 +14,14 @@ import logging
 import re
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Empty = pick the newest Flash model this key can use (Google retires
 # model names over time). Set GEMINI_MODEL to pin one.
 log = logging.getLogger(__name__)
 MODEL = os.environ.get("GEMINI_MODEL", "")
 _resolved: Optional[str] = None
+_lite: Optional[str] = None  # Flash-Lite model name ("" = unavailable)
 MAX_CHARS = int(os.environ.get("TRANSCRIPT_MAX_CHARS", "150000"))
 
 
@@ -366,3 +367,109 @@ def compare(prev: Dict[str, Any], cur: Dict[str, Any], *, name: str, symbol: str
             raise QuotaExceeded(msg[:200]) from e
         log.warning("compare failed for %s: %s", symbol, e)
         return None
+
+
+# ------------------------------------------------------------ full Q&A
+
+QA_SCHEMA = {"type": "ARRAY", "items": {
+    "type": "OBJECT",
+    "properties": {
+        "analyst": {"type": "STRING", "nullable": True},
+        "firm": {"type": "STRING", "nullable": True},
+        "topic": {"type": "STRING"},
+        "q": {"type": "STRING"},
+        "a": {"type": "STRING"},
+        "answeredBy": {"type": "STRING", "nullable": True},
+    },
+    "required": ["topic", "q", "a"],
+}}
+
+QA_PROMPT = """Below is {part} of the earnings/analyst call transcript of {name} ({symbol}), {period}.
+
+List EVERY question asked by analysts/investors in this text, in the order asked.
+Do not skip, merge or shorten the list: follow-up questions are separate entries.
+If one person asks several questions in one turn, make one entry per question.
+Ignore the operator, opening remarks and anything that is not a question.
+- analyst: the person's name; firm: their company (null if not stated).
+- topic: 1-3 words (e.g. "Margins", "Order book", "Capex", "Demand").
+- q: the question in full in 1-3 clear sentences, keeping every number.
+- a: management's answer in detail (3-6 sentences): all numbers, timelines,
+  reasons and caveats they gave. If they declined to answer, say so.
+- answeredBy: the management person who answered (name and/or role), if clear.
+English only. Facts from the transcript only.
+
+TRANSCRIPT ({part}):
+{text}
+"""
+
+_QA_START = re.compile(r"question[- ]and[- ]answer|q\s*&\s*a session|first question|open the floor|"
+                       r"open (?:the )?(?:line|call) for questions", re.I)
+
+
+def qa_chunks(text: str, size: int = 45000) -> List[str]:
+    """The Q&A part of a transcript, split at line breaks into ~size-char chunks."""
+    m = _QA_START.search(text, len(text) // 8)  # skip mentions in the opening agenda
+    body = text[m.start():] if m else text
+    chunks, cur = [], ""
+    for line in body.splitlines(keepends=True):
+        if len(cur) + len(line) > size and cur:
+            chunks.append(cur)
+            cur = ""
+        cur += line
+    if cur.strip():
+        chunks.append(cur)
+    return chunks
+
+
+def full_qa(text: str, *, name: str, symbol: str, period: str,
+            api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Every question and answer of a call (Flash-Lite, chunked)."""
+    from google import genai
+    from google.genai import types
+
+    key = api_key or os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise QuotaExceeded("GEMINI_API_KEY is not set")
+    client = genai.Client(api_key=key)
+    global _lite
+    if _lite is None:
+        try:
+            _lite = pick_model(client, lite=True)
+        except QuotaExceeded:
+            _lite = ""
+    model = _lite or resolved_model(client)
+    chunks = qa_chunks(text[:MAX_CHARS * 2])
+    out: List[Dict[str, Any]] = []
+    for i, chunk in enumerate(chunks):
+        part = "the Q&A session" if len(chunks) == 1 else f"part {i + 1} of {len(chunks)} of the Q&A session"
+        prompt = QA_PROMPT.format(part=part, name=name, symbol=symbol, period=period, text=chunk)
+        for attempt in range(4):
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json", response_schema=QA_SCHEMA,
+                        temperature=0.1, max_output_tokens=32768))
+                rows = json.loads(resp.text)
+                break
+            except json.JSONDecodeError:
+                if attempt >= 1:
+                    raise
+            except Exception as e:
+                msg = str(e)
+                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                    if "PerDay" in msg or attempt >= 2:
+                        raise QuotaExceeded(msg[:300]) from e
+                    time.sleep(30 * (attempt + 1))
+                    continue
+                if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL")) and attempt < 3:
+                    time.sleep(10 * (attempt + 1))
+                    continue
+                raise
+        else:
+            raise RuntimeError("Q&A extraction failed")
+        for r in rows:
+            if (r.get("q") or "").strip():
+                out.append({k: (r.get(k) or "").strip() or None
+                            for k in ("analyst", "firm", "topic", "q", "a", "answeredBy")})
+    return out

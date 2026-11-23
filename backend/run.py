@@ -69,6 +69,7 @@ TRANSCRIPT_DAYS = int(os.environ.get("TRANSCRIPT_DAYS", "400"))   # ~last 4 quar
 MAX_CALLS = int(os.environ.get("MAX_CALLS", "8"))                   # per company
 MAX_DOCS = 2          # latest investor presentations / press releases per company
 SUMMARY_VERSION = 3
+QA_VERSION = 1
 # Firestore free plan: 20k writes / 50k reads a day. Catch-up work stops at
 # the soft limits so live results, deals and alerts always have room.
 WRITE_SOFT = int(os.environ.get("WRITE_SOFT", "12000"))
@@ -1358,6 +1359,64 @@ class Pipeline:
         for sym in [s for s in pend if s not in self.universe]:
             del pend[sym]
 
+    # ---------------------------------------------------------- full Q&A
+
+    def _queue_qa(self, sym: str, cid: str, url: str, filed: str) -> None:
+        q = self.state.setdefault("qaQueue", [])
+        if not any(x[0] == sym and x[1] == cid for x in q):
+            q.append([sym, cid, url, filed])
+
+    def process_qa(self, minutes: float = 6) -> None:
+        """Every analyst question + answer of each summarised call (Flash-Lite).
+        Newest calls of the biggest companies first. Existing summaries are
+        queued once from the transcript index."""
+        from summarize import QuotaExceeded, full_qa, pdf_text
+        import time as _t
+
+        if not os.environ.get("GEMINI_API_KEY"):
+            return
+        if not self.state.get("qaMigrated"):
+            for sym, tdoc in self.store.list("transcripts"):
+                for it in tdoc.get("items", []):
+                    if it.get("done") and it.get("kind", "earnings") in ("earnings", "analyst"):
+                        self._queue_qa(sym, it.get("id", it["period"]), it["url"], it["filed"])
+            self.state["qaMigrated"] = True
+            log.info("Q&A: queued %d existing calls", len(self.state.get("qaQueue", [])))
+        q = self.state.get("qaQueue", [])
+        q.sort(key=lambda x: (x[3] < (self.today - timedelta(days=120)).isoformat(),
+                              -float(self.universe.get(x[0], {}).get("mcap") or 0), x[3]))
+        deadline = _t.time() + minutes * 60
+        n = 0
+        while q and _t.time() < deadline:
+            sym, cid, url, filed = q[0]
+            path = f"companies/{sym}/concalls/{cid}"
+            doc = self.store.get(path)
+            if not doc or doc.get("v", 1) < 2 or doc.get("qaV") == QA_VERSION:
+                q.pop(0)
+                continue
+            try:
+                text = pdf_text(self.nse.download(url))
+                qa = full_qa(text, name=self.universe.get(sym, {}).get("name", sym), symbol=sym,
+                             period=doc.get("period") or cid)
+            except QuotaExceeded as e:
+                log.warning("Q&A paused (quota): %s", str(e)[:120])
+                break
+            except Exception as e:
+                log.warning("Q&A %s %s failed: %s", sym, cid, e)
+                tries = doc.get("qaTries", 0) + 1
+                self.store.set(path, {"qaTries": tries}, merge=True)
+                entry = q.pop(0)
+                if tries < 3:
+                    q.append(entry)  # retry later; give up after 3 tries
+                continue
+            if qa:  # nested merge: replaces only summary.en.qa
+                self.store.set(path, {"summary": {"en": {"qa": qa}}, "qaV": QA_VERSION, "qaCount": len(qa)},
+                               merge=True)
+            q.pop(0)
+            n += 1
+        if n or q:
+            log.info("Q&A: %d calls done this run, %d waiting", n, len(q))
+
     def process_transcripts(self) -> None:
         """Summarise pending transcripts: every company's latest call first
         (biggest companies first), then earlier quarters. Time-boxed."""
@@ -1365,6 +1424,23 @@ class Pipeline:
         import time as _t
 
         self.flush_transcripts()
+        if not self.state.get("liteRetry"):
+            # Older calls failed on a Flash-Lite bug and were given up after 3
+            # tries: put them back in the queue once.
+            n = 0
+            for sym, tdoc in self.store.list("transcripts"):
+                items = tdoc.get("items", [])
+                changed = False
+                for it in items:
+                    if it.get("done") and it.get("tries"):
+                        it["done"], it["tries"] = False, 0
+                        changed = True
+                        n += 1
+                if changed:
+                    self.store.set(f"transcripts/{sym}", tdoc)
+                    self._set_pending(sym, items)
+            self.state["liteRetry"] = True
+            log.info("re-queued %d calls that failed on the Flash-Lite bug", n)
         deadline = _t.time() + SUMMARY_MINUTES * 60
         done = failures_in_a_row = 0
         pend = self.state.setdefault("trPending", {})
@@ -1452,6 +1528,8 @@ class Pipeline:
                 "guidanceDiff": gdiff,
             }
             self.store.set(path, doc)
+            if not is_doc:  # then capture every Q&A question in a separate pass
+                self._queue_qa(sym, cid, url, item["filed"])
             for gid, gx in guidance_all:  # replace this call's guidance items
                 if (gx.get("callId") or gx.get("madeIn")) == cid and gx.get("status") != "superseded":
                     self.store.set(f"companies/{sym}/guidance/{gid}", {"madeIn": period, "metric": "other",
@@ -1626,6 +1704,11 @@ def main() -> None:
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
+        if not args.skip_transcripts and not symbols and pipe.budget_ok("Q&A", write_limit=WRITE_SOFT + 4000):
+            try:
+                pipe.process_qa(float(os.environ.get("QA_MINUTES", "8")))
+            except Exception as e:
+                log.warning("Q&A failed: %s", e)
         if not symbols and pipe.budget_ok("profiles"):
             try:
                 pipe.process_profiles(float(os.environ.get("PROFILE_MINUTES", "4")))

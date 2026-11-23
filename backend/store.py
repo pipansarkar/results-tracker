@@ -44,7 +44,7 @@ class LocalStore(Store):
         f = self._file(path)
         f.parent.mkdir(parents=True, exist_ok=True)
         if merge and f.exists():
-            data = {**json.loads(f.read_text()), **data}
+            data = _deep_merge(json.loads(f.read_text()), data)  # like Firestore
         f.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
     def list(self, collection: str) -> List[Tuple[str, Dict]]:
@@ -82,3 +82,10 @@ class FirestoreStore(Store):
         out = [(d.id, d.to_dict()) for d in self.db.collection(collection).stream()]
         self.reads += max(1, len(out))
         return out
+
+
+def _deep_merge(a: Dict, b: Dict) -> Dict:
+    out = dict(a)
+    for k, v in b.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out

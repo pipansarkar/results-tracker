@@ -304,7 +304,21 @@ class QaPair {
   final String q;
   final String a;
   final String? analyst;
-  const QaPair(this.q, this.a, [this.analyst]);
+  final String? firm;
+  final String? topic;
+  final String? answeredBy;
+  const QaPair(
+    this.q,
+    this.a, [
+    this.analyst,
+    this.firm,
+    this.topic,
+    this.answeredBy,
+  ]);
+
+  /// "Name, Firm" (either part may be missing).
+  String get askedBy =>
+      [analyst, firm].whereType<String>().where((x) => x.isNotEmpty).join(', ');
 }
 
 class SegmentNote {
@@ -379,6 +393,9 @@ class SummaryLang {
                   (e as Map)['q'] as String? ?? '',
                   e['a'] as String? ?? '',
                   e['analyst'] as String?,
+                  e['firm'] as String?,
+                  e['topic'] as String?,
+                  e['answeredBy'] as String?,
                 ),
               )
               .toList(),
