@@ -463,6 +463,11 @@ def full_qa(text: str, *, name: str, symbol: str, period: str,
                     time.sleep(30 * (attempt + 1))
                     continue
                 if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL")) and attempt < 3:
+                    if attempt >= 1:  # Flash-Lite overloaded: switch to Flash
+                        try:
+                            model = resolved_model(client)
+                        except QuotaExceeded:
+                            pass
                     time.sleep(10 * (attempt + 1))
                     continue
                 raise

@@ -101,6 +101,11 @@ def describe(companies: List[Dict], sectors: List[str], api_key: str = None) -> 
                 time.sleep(30 * (attempt + 1))
                 continue
             if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL")) and attempt < 3:
+                if attempt >= 1:  # Flash-Lite overloaded: use Flash for the rest of the run
+                    try:
+                        _model = pick_model(client)
+                    except QuotaExceeded:
+                        pass
                 time.sleep(10 * (attempt + 1))
                 continue
             raise
