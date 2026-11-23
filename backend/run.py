@@ -1587,6 +1587,7 @@ def main() -> None:
                 raise
             log.warning("Firestore free daily quota is used up; morning alerts skipped (%s)", str(e)[:120])
         return
+    quota_hit = False
     try:
         if not symbols:
             pipe.refresh_universe(force=args.refresh_universe)
@@ -1646,6 +1647,7 @@ def main() -> None:
                 pipe.morning_alerts()  # once a day: concalls / results today
     except Exception as e:
         if _quota_error(e):
+            quota_hit = True
             log.warning("Firestore free daily quota is used up; stopping this run quietly. "
                         "It resets at about 13:30 IST and the next run continues. (%s)", str(e)[:120])
             return
@@ -1654,7 +1656,8 @@ def main() -> None:
         try:
             r, w = pipe.used()
             log.info("firestore usage today: %d reads, %d writes", r, w)
-            pipe.save_state()
+            if not quota_hit:  # writes would only fail (slowly) until the reset
+                pipe.save_state()
         except Exception as e:
             if not _quota_error(e):
                 raise
@@ -1664,7 +1667,8 @@ def main() -> None:
 def _quota_error(e: BaseException) -> bool:
     msg = f"{type(e).__name__} {e}"
     return any(x in msg for x in ("RESOURCE_EXHAUSTED", "ResourceExhausted", "Quota exceeded",
-                                  "ServiceUnavailable", "UNAVAILABLE"))
+                                  "ServiceUnavailable", "UNAVAILABLE", "DeadlineExceeded",
+                                  "Deadline Exceeded"))
 
 
 if __name__ == "__main__":
