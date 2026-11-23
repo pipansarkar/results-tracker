@@ -71,15 +71,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow results-pipeline --event schedule --limit 1 --json createdAt -q '.[0].createdAt // ""')
-          now=$(date +%s)
-          if [ -z "$last" ] || [ $(( now - $(date -d "$last" +%s) )) -gt 5400 ]; then
-            # Space runs >= 25 min apart, so a short run (e.g. when the free
-            # Firestore quota is used up) doesn't start runs back to back.
-            wait=$(( 1500 - (now - ${RUN_START:-$now}) ))
-            if [ "$wait" -gt 0 ]; then echo "Waiting ${wait}s before the next run."; sleep "$wait"; fi
-            echo "Scheduler idle: starting next run."
-            gh workflow run results-pipeline -R "$GITHUB_REPOSITORY"
-          else
-            echo "Scheduler active (last scheduled run $last)."
+          # Start the next run unless one is already queued or running
+          # (GitHub's cron often skips slots). Runs stay >= 25 min apart.
+          others=$(gh run list -R "$GITHUB_REPOSITORY" --workflow results-pipeline --limit 10 \
+                     --json databaseId,status -q "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.status==\"queued\" or .status==\"in_progress\" or .status==\"waiting\" or .status==\"pending\")] | length")
+          if [ "${others:-0}" -gt 0 ]; then
+            echo "Another run is already queued; not starting one."
+            exit 0
           fi
+          now=$(date +%s)
+          wait=$(( 1500 - (now - ${RUN_START:-$now}) ))
+          if [ "$wait" -gt 0 ]; then echo "Waiting ${wait}s before the next run."; sleep "$wait"; fi
+          echo "Starting next run."
+          gh workflow run results-pipeline -R "$GITHUB_REPOSITORY"
