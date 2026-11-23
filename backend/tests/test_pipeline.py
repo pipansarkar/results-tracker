@@ -482,7 +482,8 @@ def test_company_profile_parsing(monkeypatch):
             self.models = _Models()
 
     monkeypatch.setattr(genai, "Client", _Client)
-    monkeypatch.setattr(cp, "_model", "flash-lite")
+    import summarize as _sm
+    monkeypatch.setattr(_sm, "_all_models", ["flash-lite"])
     out = cp.describe([{"symbol": "ABC", "name": "Abc Ltd", "notes": "capacity doubling"},
                        {"symbol": "XYZ", "name": "Xyz Ltd"}], ["Capital Goods", "FMCG"], api_key="k")
     assert set(out) == {"ABC", "XYZ"}
@@ -538,7 +539,7 @@ def test_full_qa_chunking_and_merge(monkeypatch, tmp_path):
             self.models = _Models()
 
     monkeypatch.setattr(genai, "Client", _Client)
-    monkeypatch.setattr(sm, "_lite", "flash-lite")
+    monkeypatch.setattr(sm, "_all_models", ["flash-lite"])
     monkeypatch.setattr(sm, "qa_chunks", lambda t: ["c1", "c2", "c3"])
     qa = sm.full_qa("t", name="X", symbol="X", period="Q2FY27", api_key="k")
     assert [x["q"] for x in qa] == ["Q1?", "Q2?", "Q3?"] and qa[0]["firm"] is None
@@ -549,3 +550,37 @@ def test_full_qa_chunking_and_merge(monkeypatch, tmp_path):
     st.set("c/1", {"summary": {"en": {"qa": [1, 2, 3]}}, "qaV": 1}, merge=True)
     d = st.get("c/1")
     assert d["summary"]["en"] == {"overview": "o", "qa": [1, 2, 3]} and d["v"] == 3
+
+
+
+def test_generate_json_rotates_models(monkeypatch):
+    import json as _json
+    import summarize as sm
+
+    seen = []
+
+    class _Models:
+        def generate_content(self, model, **kw):
+            seen.append(model)
+            if model == "gemini-9-flash":
+                raise RuntimeError("429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel")
+            if model == "gemini-9-flash-lite":
+                raise RuntimeError("503 UNAVAILABLE high demand")
+            class R:
+                text = _json.dumps({"ok": 1})
+            return R()
+
+    class _C:
+        models = _Models()
+
+    monkeypatch.setattr(sm, "_all_models", ["gemini-9-flash", "gemini-9-flash-lite", "gemini-8-flash"])
+    monkeypatch.setattr(sm, "_dead", set())
+    monkeypatch.setattr(sm, "_busy", {})
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)
+    data, model = sm.generate_json(_C(), "p", {"type": "OBJECT"})
+    assert data == {"ok": 1} and model == "gemini-8-flash"
+    assert "gemini-9-flash" in sm._dead
+    # Lite preference; the dead model is skipped; a busy model goes to the back.
+    assert sm.candidates(_C(), lite=True) == ["gemini-9-flash-lite", "gemini-8-flash"]
+    sm._busy["gemini-9-flash-lite"] = sm.time.time()
+    assert sm.candidates(_C(), lite=True) == ["gemini-8-flash", "gemini-9-flash-lite"]

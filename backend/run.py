@@ -1619,7 +1619,7 @@ class Pipeline:
 
 def _model_name() -> str:
     import summarize
-    return summarize._resolved or summarize.MODEL or "gemini"
+    return summarize._last_model or summarize._resolved or summarize.MODEL or "gemini"
 
 
 def load_universe(store: Store) -> Dict[str, Dict[str, str]]:

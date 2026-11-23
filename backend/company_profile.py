@@ -7,12 +7,10 @@ uses its general knowledge and must flag when it doesn't know the company.
 """
 from __future__ import annotations
 
-import json
 import os
-import time
 from typing import Dict, List
 
-from summarize import QuotaExceeded, pick_model
+from summarize import QuotaExceeded, generate_json
 
 VERSION = 1
 BATCH = 8
@@ -61,18 +59,11 @@ _model = None
 def describe(companies: List[Dict], sectors: List[str], api_key: str = None) -> Dict[str, Dict]:
     """companies: [{symbol, name, sector?, notes?}] -> {symbol: profile}."""
     from google import genai
-    from google.genai import types
 
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
         raise QuotaExceeded("GEMINI_API_KEY is not set")
     client = genai.Client(api_key=key)
-    global _model
-    if _model is None:
-        try:
-            _model = pick_model(client, lite=True)
-        except QuotaExceeded:
-            _model = pick_model(client)
     blocks = []
     for c in companies:
         b = f"- {c['symbol']}: {c['name']}"
@@ -82,35 +73,7 @@ def describe(companies: List[Dict], sectors: List[str], api_key: str = None) -> 
             b += f"\n  CONCALL NOTES: {c['notes'][:1500]}"
         blocks.append(b)
     prompt = PROMPT.format(sectors="; ".join(sectors), companies="\n".join(blocks))
-    for attempt in range(4):
-        try:
-            resp = client.models.generate_content(
-                model=_model, contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json", response_schema=SCHEMA, temperature=0.2))
-            rows = json.loads(resp.text)
-            break
-        except json.JSONDecodeError:
-            if attempt >= 1:
-                raise
-        except Exception as e:
-            msg = str(e)
-            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                if "PerDay" in msg or attempt >= 2:
-                    raise QuotaExceeded(msg[:300]) from e
-                time.sleep(30 * (attempt + 1))
-                continue
-            if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL")) and attempt < 3:
-                if attempt >= 1:  # Flash-Lite overloaded: use Flash for the rest of the run
-                    try:
-                        _model = pick_model(client)
-                    except QuotaExceeded:
-                        pass
-                time.sleep(10 * (attempt + 1))
-                continue
-            raise
-    else:
-        raise RuntimeError("profile generation failed")
+    rows, _ = generate_json(client, prompt, SCHEMA, lite=True)
     wanted = {c["symbol"] for c in companies}
     by_sector = {s.lower(): s for s in sectors}
     out = {}

@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 MODEL = os.environ.get("GEMINI_MODEL", "")
 _resolved: Optional[str] = None
 _lite: Optional[str] = None  # Flash-Lite model name ("" = unavailable)
+_last_model: Optional[str] = None  # model that wrote the latest summary
 MAX_CHARS = int(os.environ.get("TRANSCRIPT_MAX_CHARS", "150000"))
 
 
@@ -59,6 +60,96 @@ def resolved_model(client) -> str:
     if _resolved is None:
         _resolved = MODEL or pick_model(client)
     return _resolved
+
+
+# ------------------------------------------------------- model rotation
+# Each Gemini model has its own free-tier allowance, and older models are
+# usually less busy. generate_json() tries the usable Flash models in turn,
+# skipping ones that are out of today's allowance or overloaded.
+
+_all_models: Optional[List[str]] = None
+_dead: set = set()      # out of today's allowance (or missing) this run
+_busy: Dict[str, float] = {}  # model -> time it last answered 503
+
+
+def _usable_models(client) -> List[str]:
+    global _all_models
+    if _all_models is None:
+        names = []
+        try:
+            for m in client.models.list():
+                name = (m.name or "").split("/")[-1]
+                actions = getattr(m, "supported_actions", None) or []
+                if "flash" not in name or (actions and "generateContent" not in actions):
+                    continue
+                if re.search(r"preview|exp|tts|image|audio|live|thinking", name):
+                    continue
+                names.append(name)
+        except Exception as e:
+            log.warning("could not list Gemini models: %s", e)
+        _all_models = sorted(set(names), key=_version_key, reverse=True)
+        log.info("Gemini models available: %s", ", ".join(_all_models) or "none")
+    return _all_models
+
+
+def candidates(client, lite: bool = False) -> List[str]:
+    """Preferred family first (Flash or Flash-Lite), newest first, then the other."""
+    if MODEL:
+        return [MODEL]
+    ms = _usable_models(client)
+    first = [m for m in ms if ("lite" in m) == lite]
+    second = [m for m in ms if ("lite" in m) != lite]
+    order = [m for m in first + second if m not in _dead]
+    # Recently overloaded models go to the back of the line.
+    return sorted(order, key=lambda m: _busy.get(m, 0) > time.time() - 300)
+
+
+def generate_json(client, prompt: str, schema: Dict, *, lite: bool = False,
+                  temperature: float = 0.2, max_tokens: Optional[int] = None):
+    """Structured JSON from the first model that answers. Returns (data, model).
+    Raises QuotaExceeded when every model is out of allowance or busy."""
+    from google.genai import types
+
+    cfg = dict(response_mime_type="application/json", response_schema=schema, temperature=temperature)
+    if max_tokens:
+        cfg["max_output_tokens"] = max_tokens
+    tried, last = 0, ""
+    for model in candidates(client, lite):
+        tried += 1
+        for attempt in range(3):
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=prompt, config=types.GenerateContentConfig(**cfg))
+                return json.loads(resp.text), model
+            except json.JSONDecodeError:
+                if attempt >= 1:
+                    raise
+                continue
+            except Exception as e:
+                msg = str(e)
+                last = msg[:200]
+                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                    if "PerDay" in msg or "per day" in msg.lower() or attempt >= 1:
+                        _dead.add(model)
+                        log.info("Gemini %s: out of today's free allowance, trying the next model", model)
+                        break
+                    time.sleep(20)  # per-minute limit
+                    continue
+                if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL", "overloaded")):
+                    _busy[model] = time.time()
+                    if attempt >= 1:
+                        log.info("Gemini %s busy, trying the next model", model)
+                        break
+                    time.sleep(8)
+                    continue
+                if any(x in msg for x in ("404", "NOT_FOUND", "not supported", "INVALID_ARGUMENT")) \
+                        and "token" not in msg.lower():
+                    _dead.add(model)
+                    break
+                if "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
+                    raise QuotaExceeded(msg[:300]) from e
+                raise
+    raise QuotaExceeded(f"no Gemini model available right now ({tried} tried): {last}")
 
 
 def pdf_text(content: bytes) -> str:
@@ -265,7 +356,6 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     """lite=True uses Flash-Lite (faster, larger free quota) - used for the
     backlog of older calls; fresh calls use the full Flash model."""
     from google import genai
-    from google.genai import types
 
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
@@ -278,62 +368,11 @@ def summarise(text: str, *, name: str, symbol: str, period: str,
     client = genai.Client(api_key=key)
     prompt = PROMPT.format(doc=DOC_NAMES.get(doc, DOC_NAMES["call"]), name=name, symbol=symbol, period=period,
                            previous=prev, transcript=text[:MAX_CHARS])
-    global _lite
-    if lite and not MODEL:
-        if _lite is None:
-            try:
-                _lite = pick_model(client, lite=True)
-            except QuotaExceeded:
-                _lite = ""
-        model = _lite or resolved_model(client)
-    else:
-        model = resolved_model(client)
-    tried_lite = lite
-    for attempt in range(5):
-        try:
-            resp = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=SCHEMA,
-                    temperature=0.2,
-                ),
-            )
-            out = json.loads(resp.text)
-            out["summary"] = {"en": out.get("summary") or {}}
-            return out
-        except json.JSONDecodeError:
-            if attempt >= 2:
-                raise
-        except Exception as e:  # SDK raises its own error classes
-            msg = str(e)
-            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                if "PerDay" in msg or attempt >= 2:
-                    raise QuotaExceeded(msg[:300]) from e
-                time.sleep(30 * (attempt + 1))  # per-minute limit: wait and retry
-                continue
-            if "503" in msg or "UNAVAILABLE" in msg or "500" in msg or "INTERNAL" in msg:
-                # Google overloaded: back off, then try Flash-Lite once.
-                if attempt >= 1 and not tried_lite and not MODEL:
-                    try:
-                        global _resolved
-                        model = pick_model(client, lite=True)
-                        _resolved = model  # stay on Lite for the rest of this run
-                        tried_lite = True
-                        log.info("Gemini busy; falling back to %s", model)
-                        continue
-                    except QuotaExceeded:
-                        pass
-                if attempt >= 4:
-                    raise QuotaExceeded("Gemini overloaded: " + msg[:200]) from e
-                time.sleep(15 * (attempt + 1))
-                continue
-            if "404" in msg or "NOT_FOUND" in msg or "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
-                # Model/key problem, not this transcript's fault: stop the batch.
-                raise QuotaExceeded(msg[:300]) from e
-            raise
-    raise RuntimeError("unreachable")
+    out, model = generate_json(client, prompt, SCHEMA, lite=lite)
+    global _last_model
+    _last_model = model
+    out["summary"] = {"en": out.get("summary") or {}}
+    return out
 
 
 def compare(prev: Dict[str, Any], cur: Dict[str, Any], *, name: str, symbol: str,
@@ -425,54 +464,17 @@ def full_qa(text: str, *, name: str, symbol: str, period: str,
             api_key: Optional[str] = None) -> List[Dict[str, Any]]:
     """Every question and answer of a call (Flash-Lite, chunked)."""
     from google import genai
-    from google.genai import types
 
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
         raise QuotaExceeded("GEMINI_API_KEY is not set")
     client = genai.Client(api_key=key)
-    global _lite
-    if _lite is None:
-        try:
-            _lite = pick_model(client, lite=True)
-        except QuotaExceeded:
-            _lite = ""
-    model = _lite or resolved_model(client)
     chunks = qa_chunks(text[:MAX_CHARS * 2])
     out: List[Dict[str, Any]] = []
     for i, chunk in enumerate(chunks):
         part = "the Q&A session" if len(chunks) == 1 else f"part {i + 1} of {len(chunks)} of the Q&A session"
         prompt = QA_PROMPT.format(part=part, name=name, symbol=symbol, period=period, text=chunk)
-        for attempt in range(4):
-            try:
-                resp = client.models.generate_content(
-                    model=model, contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json", response_schema=QA_SCHEMA,
-                        temperature=0.1, max_output_tokens=32768))
-                rows = json.loads(resp.text)
-                break
-            except json.JSONDecodeError:
-                if attempt >= 1:
-                    raise
-            except Exception as e:
-                msg = str(e)
-                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                    if "PerDay" in msg or attempt >= 2:
-                        raise QuotaExceeded(msg[:300]) from e
-                    time.sleep(30 * (attempt + 1))
-                    continue
-                if any(x in msg for x in ("503", "UNAVAILABLE", "500", "INTERNAL")) and attempt < 3:
-                    if attempt >= 1:  # Flash-Lite overloaded: switch to Flash
-                        try:
-                            model = resolved_model(client)
-                        except QuotaExceeded:
-                            pass
-                    time.sleep(10 * (attempt + 1))
-                    continue
-                raise
-        else:
-            raise RuntimeError("Q&A extraction failed")
+        rows, _ = generate_json(client, prompt, QA_SCHEMA, lite=True, temperature=0.1, max_tokens=32768)
         for r in rows:
             if (r.get("q") or "").strip():
                 out.append({k: (r.get(k) or "").strip() or None
