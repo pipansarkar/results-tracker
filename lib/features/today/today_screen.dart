@@ -100,7 +100,17 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           children: [
             const SampleDataBanner(),
             const StockSearchBar(),
-            _Hero(results: items.length, concalls: todayCalls.length),
+            _Hero(
+              results: items.length,
+              concalls: todayCalls.length,
+              nextWeek: [
+                for (final d in calendar.value ?? const <CalendarDay>[])
+                  if (d.date.isAfter(now) &&
+                      d.date.isBefore(now.add(const Duration(days: 7))))
+                    for (final e in d.events)
+                      if (e.type == EventType.results) e,
+              ].length,
+            ),
             const _QuickActions(),
             _WatchlistToday(
               results: items.where((i) => watch.contains(i.symbol)).toList(),
@@ -214,16 +224,21 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
 // --------------------------------------------------------------------- hero
 
 class _Hero extends ConsumerWidget {
-  const _Hero({required this.results, required this.concalls});
-  final int results, concalls;
+  const _Hero({
+    required this.results,
+    required this.concalls,
+    required this.nextWeek,
+  });
+  final int results, concalls, nextWeek;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(seasonProvider).value;
     final scheme = Theme.of(context).colorScheme;
     final on = scheme.onPrimary;
+    final dim = on.withValues(alpha: 0.85);
     final progress = s == null || s.total == 0 ? null : s.reported / s.total;
-    Widget stat(String value, String label) => Expanded(
+    Widget stat(String value, String label, {double size = 22}) => Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -231,94 +246,206 @@ class _Hero extends ConsumerWidget {
             value,
             style: TextStyle(
               color: on,
-              fontSize: 22,
+              fontSize: size,
               fontWeight: FontWeight.w800,
             ),
           ),
-          Text(
-            label,
-            style: TextStyle(color: on.withValues(alpha: 0.85), fontSize: 12),
-          ),
+          Text(label, style: TextStyle(color: dim, fontSize: 12)),
         ],
       ),
     );
+    String p0(double? v) => v == null ? '—' : '${v.round()}%';
+
+    // Highlights: best / weakest sector, biggest profit jump, best reaction.
+    final chips = <(IconData, String, String?)>[];
+    if (s != null) {
+      final secs = s.sectors.where((x) => x['pg'] != null).toList();
+      if (secs.isNotEmpty) {
+        final best = secs.first, worst = secs.last;
+        chips.add((
+          Icons.emoji_events_outlined,
+          'Best sector: ${best['sector']} ${pct((best['pg'] as num).toDouble())}',
+          null,
+        ));
+        if (secs.length > 1) {
+          chips.add((
+            Icons.trending_down,
+            'Weakest: ${worst['sector']} ${pct((worst['pg'] as num).toDouble())}',
+            null,
+          ));
+        }
+      }
+      if (s.topProfit.isNotEmpty) {
+        final t = s.topProfit.first;
+        chips.add((
+          Icons.rocket_launch_outlined,
+          'Top profit jump: ${t['s']} ${pct((t['pg'] as num?)?.toDouble())}',
+          t['s'] as String,
+        ));
+      }
+      if (s.bestReaction.isNotEmpty) {
+        final t = s.bestReaction.first;
+        chips.add((
+          Icons.show_chart,
+          'Best stock reaction: ${t['s']} ${pct((t['r'] as num?)?.toDouble())}',
+          t['s'] as String,
+        ));
+      }
+      if (s.worstProfit.isNotEmpty) {
+        final t = s.worstProfit.first;
+        chips.add((
+          Icons.warning_amber_rounded,
+          'Biggest profit fall: ${t['s']} ${pct((t['pg'] as num?)?.toDouble())}',
+          t['s'] as String,
+        ));
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Material(
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => context.push('/season'),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  scheme.primary,
-                  Color.lerp(scheme.primary, scheme.tertiary, 0.6)!,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.scoreboard_outlined, color: on, size: 18),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        s == null
-                            ? 'Results season'
-                            : '${periodLabel(s.season)} results season',
-                        style: TextStyle(
-                          color: on,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, color: on),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    stat('$results', 'results today'),
-                    stat('$concalls', 'concalls today'),
-                    stat(
-                      s?.profitGrewPct == null
-                          ? '—'
-                          : '${s!.profitGrewPct!.round()}%',
-                      'grew profit',
-                    ),
-                  ],
-                ),
-                if (progress != null) ...[
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: progress.clamp(0, 1),
-                      minHeight: 6,
-                      color: on,
-                      backgroundColor: on.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${s!.reported} of ${s.total} companies reported'
-                    '${s.medianProfitGrowth == null ? '' : ' · median profit ${pct(s.medianProfitGrowth)}'}',
-                    style: TextStyle(
-                      color: on.withValues(alpha: 0.9),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                scheme.primary,
+                Color.lerp(scheme.primary, scheme.tertiary, 0.6)!,
               ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: () => context.push('/season'),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.scoreboard_outlined, color: on, size: 18),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              s == null
+                                  ? 'Results season'
+                                  : '${periodLabel(s.season)} results season',
+                              style: TextStyle(
+                                color: on,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            'Scoreboard',
+                            style: TextStyle(color: dim, fontSize: 12),
+                          ),
+                          Icon(Icons.chevron_right, color: on),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          stat('$results', 'results today'),
+                          stat('$concalls', 'concalls today'),
+                          stat('$nextWeek', 'due next 7 days'),
+                        ],
+                      ),
+                      if (s != null) ...[
+                        const SizedBox(height: 12),
+                        Divider(height: 1, color: on.withValues(alpha: 0.2)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            stat(p0(s.profitGrewPct), 'grew profit', size: 18),
+                            stat(p0(s.revGrewPct), 'grew revenue', size: 18),
+                            stat(
+                              s.medianProfitGrowth == null
+                                  ? '—'
+                                  : pct(s.medianProfitGrowth),
+                              'median profit gr.',
+                              size: 18,
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (progress != null) ...[
+                        const SizedBox(height: 14),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: progress.clamp(0, 1),
+                            minHeight: 6,
+                            color: on,
+                            backgroundColor: on.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${s!.reported} of ${s.total} companies reported '
+                          '(${(progress * 100).round()}%)'
+                          '${s.medianRevGrowth == null ? '' : ' · median revenue ${pct(s.medianRevGrowth)}'}',
+                          style: TextStyle(color: dim, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              if (chips.isNotEmpty)
+                SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    children: [
+                      for (final (icon, text, sym) in chips)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Material(
+                            color: on.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () => context.push(
+                                sym == null
+                                    ? '/season'
+                                    : '/company/${Uri.encodeComponent(sym)}',
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(icon, size: 15, color: on),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      text,
+                                      style: TextStyle(
+                                        color: on,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ),
