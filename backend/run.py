@@ -1666,6 +1666,13 @@ def main() -> None:
             log.warning("Firestore free daily quota is used up; morning alerts skipped (%s)", str(e)[:120])
         return
     quota_hit = False
+    import time as _t
+    run_end = _t.time() + float(os.environ.get("RUN_MINUTES", "50")) * 60
+
+    def left() -> float:
+        """Minutes left in this run's time budget (GitHub kills the job later)."""
+        return (run_end - _t.time()) / 60
+
     try:
         if not symbols:
             pipe.refresh_universe(force=args.refresh_universe)
@@ -1681,14 +1688,6 @@ def main() -> None:
             pipe.backfill(minutes=330, refresh_ratios_every=400)
             pipe.save_state()
             pipe.process_screener(force=True)
-        elif not args.no_history and not symbols and pipe.budget_ok("history backfill"):
-            # Automatic: every scheduled run loads more history until done,
-            # and refreshes ratios as big batches land.
-            before = len(pipe.backfilled)
-            pipe.backfill()
-            pipe.enrich_remaining(minutes=10)
-            if len(pipe.backfilled) // 300 > before // 300:
-                pipe.state["screenerPriceDate"] = None  # force a ratios refresh
         pipe.process_board_meetings()
         pipe.process_announcements(args.days, history=not args.no_history and not symbols
                                    and pipe.budget_ok("announcement history", write_limit=WRITE_SOFT - 3000))
@@ -1704,17 +1703,29 @@ def main() -> None:
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
+            pipe.save_state()  # checkpoint: never lose finished summaries
         if not args.skip_transcripts and not symbols and pipe.budget_ok("Q&A", write_limit=WRITE_SOFT + 4000):
             try:
-                pipe.process_qa(float(os.environ.get("QA_MINUTES", "8")))
+                pipe.process_qa(min(float(os.environ.get("QA_MINUTES", "8")), left() - 20))
             except Exception as e:
                 log.warning("Q&A failed: %s", e)
+            pipe.save_state()
         if not symbols and pipe.budget_ok("profiles"):
             try:
-                pipe.process_profiles(float(os.environ.get("PROFILE_MINUTES", "4")))
+                pipe.process_profiles(min(float(os.environ.get("PROFILE_MINUTES", "4")), left() - 18))
                 pipe.sync_company_list()  # sectors filled in by profiles
             except Exception as e:
                 log.warning("profiles failed: %s", e)
+            pipe.save_state()
+        # Catch-up history last, with whatever time is left in this run.
+        if not args.backfill_all and not args.backfill and not args.no_history and not symbols \
+                and left() > 8 and pipe.budget_ok("history backfill"):
+            before = len(pipe.backfilled)
+            pipe.backfill(minutes=min(BACKFILL_MINUTES, (left() - 6) * 0.7))
+            pipe.enrich_remaining(minutes=min(10, left() - 5))
+            if len(pipe.backfilled) // 300 > before // 300:
+                pipe.state["screenerPriceDate"] = None  # ratios refresh on the next run
+            pipe.save_state()
         if not symbols:
             try:  # after summaries, so the day's concall/guidance filters are current
                 first = pipe.state.get("screenerV") != 3 and pipe.budget_ok("screener rebuild", read_limit=READ_SOFT - 5000)
