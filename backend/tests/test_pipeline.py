@@ -488,3 +488,21 @@ def test_company_profile_parsing(monkeypatch):
     assert set(out) == {"ABC", "XYZ"}
     assert out["ABC"]["about"] == "Makes pumps." and out["ABC"]["sector"] == "Capital Goods"
     assert out["XYZ"]["sector"] == "" and out["XYZ"]["potential"] == "" and not out["XYZ"]["known"]
+
+
+def test_quota_budget(tmp_path):
+    import run
+    from store import LocalStore
+
+    st = LocalStore(str(tmp_path))
+    pipe = run.Pipeline(st, None, None, {}, 1)
+    assert pipe.budget_ok("x")
+    for i in range(5):
+        st.set(f"t/{i}", {"a": i})
+    assert pipe.used()[1] == 5
+    assert not pipe.budget_ok("x", write_limit=5)
+    pipe.save_state()
+    pipe2 = run.Pipeline(st, None, None, {}, 1)
+    assert pipe2.used()[1] >= 6  # carried over within the same quota day
+    assert run._quota_error(Exception("429 Quota exceeded."))
+    assert not run._quota_error(ValueError("bad xbrl"))

@@ -11,6 +11,10 @@ from typing import Dict, List, Optional, Tuple
 
 
 class Store:
+    # Operations this run (Firestore's free plan: 50k reads, 20k writes a day).
+    reads = 0
+    writes = 0
+
     def get(self, path: str) -> Optional[Dict]:
         raise NotImplementedError
 
@@ -36,6 +40,7 @@ class LocalStore(Store):
         return json.loads(f.read_text()) if f.exists() else None
 
     def set(self, path: str, data: Dict, merge: bool = False) -> None:
+        self.writes += 1
         f = self._file(path)
         f.parent.mkdir(parents=True, exist_ok=True)
         if merge and f.exists():
@@ -65,11 +70,15 @@ class FirestoreStore(Store):
         self.db = firestore.client()
 
     def get(self, path: str) -> Optional[Dict]:
+        self.reads += 1
         snap = self.db.document(path).get()
         return snap.to_dict() if snap.exists else None
 
     def set(self, path: str, data: Dict, merge: bool = False) -> None:
+        self.writes += 1
         self.db.document(path).set(data, merge=merge)
 
     def list(self, collection: str) -> List[Tuple[str, Dict]]:
-        return [(d.id, d.to_dict()) for d in self.db.collection(collection).stream()]
+        out = [(d.id, d.to_dict()) for d in self.db.collection(collection).stream()]
+        self.reads += max(1, len(out))
+        return out

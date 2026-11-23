@@ -68,7 +68,11 @@ HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
 TRANSCRIPT_DAYS = int(os.environ.get("TRANSCRIPT_DAYS", "400"))   # ~last 4 quarters
 MAX_CALLS = int(os.environ.get("MAX_CALLS", "8"))                   # per company
 MAX_DOCS = 2          # latest investor presentations / press releases per company
-SUMMARY_VERSION = 3   # bump to regenerate all summaries in a new format
+SUMMARY_VERSION = 3
+# Firestore free plan: 20k writes / 50k reads a day. Catch-up work stops at
+# the soft limits so live results, deals and alerts always have room.
+WRITE_SOFT = int(os.environ.get("WRITE_SOFT", "12000"))
+READ_SOFT = int(os.environ.get("READ_SOFT", "35000"))   # bump to regenerate all summaries in a new format
 ENRICH_VERSION = 3    # bump to re-run per-company enrichment (calls, docs, dividends)
 SUMMARY_MINUTES = float(os.environ.get("SUMMARY_MINUTES", "12"))
 
@@ -151,13 +155,46 @@ class Pipeline:
         self._market_deals: List[Dict] = []
         # Daily NSE closing prices, cached per date for this run.
         self._bhav: Dict[str, Optional[Dict[str, float]]] = {}
+        self._base = (store.reads, store.writes)
         self.counters = self.state.setdefault("counters", {}).setdefault(self.today.isoformat(), {})
         for d in [d for d in self.state["counters"] if d < (self.today - timedelta(days=3)).isoformat()]:
             del self.state["counters"][d]
 
     # ----------------------------------------------------------------- state
 
+    # ------------------------------------------------------- daily quota
+
+    @staticmethod
+    def quota_day() -> str:
+        """Firestore's daily quota resets at midnight US Pacific (~13:30 IST)."""
+        return (datetime.now(timezone.utc) - timedelta(hours=8)).date().isoformat()
+
+    def _usage(self) -> Dict[str, int]:
+        u = self.state.setdefault("quota", {})
+        if u.get("day") != self.quota_day():
+            u.clear()
+            u.update(day=self.quota_day(), reads=0, writes=0)
+        return u
+
+    def used(self) -> Tuple[int, int]:
+        """(reads, writes) used today so far, including this run."""
+        u = self._usage()
+        return u["reads"] + self.store.reads - self._base[0], u["writes"] + self.store.writes - self._base[1]
+
+    def budget_ok(self, what: str, write_limit: int = WRITE_SOFT, read_limit: int = READ_SOFT) -> bool:
+        """False once today's usage passes the soft limit: catch-up work
+        (history, enrichment, profiles) waits; live updates keep running."""
+        r, w = self.used()
+        if w >= write_limit or r >= read_limit:
+            log.info("skipping %s today: %d reads / %d writes used (free quota)", what, r, w)
+            return False
+        return True
+
     def save_state(self) -> None:
+        r, w = self.used()
+        u = self._usage()
+        u["reads"], u["writes"] = r, w + 1
+        self._base = (self.store.reads, self.store.writes + 1)
         self.state["processed"] = list(self.processed)[-MAX_PROCESSED:]
 
         self.state["backfilled"] = sorted(self.backfilled)
@@ -667,6 +704,8 @@ class Pipeline:
             if not new:
                 continue
             merged = sorted(existing + new, key=lambda i: i.get("date") or "", reverse=True)[:keep]
+            if merged == existing:
+                continue
             self.store.set(f"activity/{sym}", {"symbol": sym, "items": merged})
             n += 1
         if self._market_deals:
@@ -968,6 +1007,8 @@ class Pipeline:
             if not new:
                 continue
             merged = sorted(doc.get("items", []) + new, key=lambda i: i["date"], reverse=True)[:keep]
+            if merged == doc.get("items"):
+                continue  # only older items than the 40 kept: nothing changes
             self.store.set(f"news/{sym}", {"symbol": sym, "items": merged})
             n += 1
         log.info("news: updated %d companies", n)
@@ -1538,8 +1579,13 @@ def main() -> None:
     pipe = Pipeline(store, nse, Notifier(dry_run=args.dry_run), universe, args.max_summaries)
 
     if args.morning:
-        pipe.morning_alerts()
-        pipe.save_state()
+        try:
+            pipe.morning_alerts()
+            pipe.save_state()
+        except Exception as e:
+            if not _quota_error(e):
+                raise
+            log.warning("Firestore free daily quota is used up; morning alerts skipped (%s)", str(e)[:120])
         return
     try:
         if not symbols:
@@ -1556,7 +1602,7 @@ def main() -> None:
             pipe.backfill(minutes=330, refresh_ratios_every=400)
             pipe.save_state()
             pipe.process_screener(force=True)
-        elif not args.no_history and not symbols:
+        elif not args.no_history and not symbols and pipe.budget_ok("history backfill"):
             # Automatic: every scheduled run loads more history until done,
             # and refreshes ratios as big batches land.
             before = len(pipe.backfilled)
@@ -1565,7 +1611,8 @@ def main() -> None:
             if len(pipe.backfilled) // 300 > before // 300:
                 pipe.state["screenerPriceDate"] = None  # force a ratios refresh
         pipe.process_board_meetings()
-        pipe.process_announcements(args.days, history=not args.no_history and not symbols)
+        pipe.process_announcements(args.days, history=not args.no_history and not symbols
+                                   and pipe.budget_ok("announcement history", write_limit=WRITE_SOFT - 3000))
         if not symbols:
             pipe.process_corporate_actions()
         pipe.flush_calendar()
@@ -1578,7 +1625,7 @@ def main() -> None:
         if not args.skip_transcripts:
             pipe.process_transcripts()
             pipe.flush_calendar()
-        if not symbols:
+        if not symbols and pipe.budget_ok("profiles"):
             try:
                 pipe.process_profiles(float(os.environ.get("PROFILE_MINUTES", "4")))
                 pipe.sync_company_list()  # sectors filled in by profiles
@@ -1586,7 +1633,7 @@ def main() -> None:
                 log.warning("profiles failed: %s", e)
         if not symbols:
             try:  # after summaries, so the day's concall/guidance filters are current
-                first = pipe.state.get("screenerV") != 3  # one-off rebuild adding guidance fields
+                first = pipe.state.get("screenerV") != 3 and pipe.budget_ok("screener rebuild", read_limit=READ_SOFT - 5000)
                 pipe.process_screener(force=first)
                 pipe.state["screenerV"] = 3
             except Exception as e:  # ratios must never block results/summaries
@@ -1597,8 +1644,27 @@ def main() -> None:
             now = now_ist()
             if (now.hour, now.minute) >= (7, 50):
                 pipe.morning_alerts()  # once a day: concalls / results today
+    except Exception as e:
+        if _quota_error(e):
+            log.warning("Firestore free daily quota is used up; stopping this run quietly. "
+                        "It resets at about 13:30 IST and the next run continues. (%s)", str(e)[:120])
+            return
+        raise
     finally:
-        pipe.save_state()
+        try:
+            r, w = pipe.used()
+            log.info("firestore usage today: %d reads, %d writes", r, w)
+            pipe.save_state()
+        except Exception as e:
+            if not _quota_error(e):
+                raise
+            log.warning("could not save state (quota): %s", str(e)[:120])
+
+
+def _quota_error(e: BaseException) -> bool:
+    msg = f"{type(e).__name__} {e}"
+    return any(x in msg for x in ("RESOURCE_EXHAUSTED", "ResourceExhausted", "Quota exceeded",
+                                  "ServiceUnavailable", "UNAVAILABLE"))
 
 
 if __name__ == "__main__":
