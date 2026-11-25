@@ -86,8 +86,8 @@ HISTORY_DAYS_PER_RUN = int(os.environ.get("HISTORY_DAYS_PER_RUN", "2"))
 # Concall summaries: time budget per run (backlog uses Flash-Lite) and how
 # many past quarters of earnings calls to keep per company.
 TRANSCRIPT_DAYS = int(os.environ.get("TRANSCRIPT_DAYS", "400"))   # ~last 4 quarters
-MAX_CALLS = int(os.environ.get("MAX_CALLS", "8"))                   # per company
-MAX_DOCS = 2          # latest investor presentations / press releases per company
+MAX_CALLS = int(os.environ.get("MAX_CALLS", "4"))                   # latest concalls summarised per company
+MAX_DOCS = 0          # investor presentations / press releases are not summarised
 SUMMARY_VERSION = 3
 QA_VERSION = 1
 # Firestore free plan: 20k writes / 50k reads a day. Catch-up work stops at
@@ -1320,11 +1320,18 @@ class Pipeline:
             self.store.set(path, {"symbol": sym, "items": items})
         self._set_pending(sym, items)
 
+    @staticmethod
+    def _wanted(items: List[Dict]) -> List[Dict]:
+        """The calls we summarise: each company's MAX_CALLS newest concalls."""
+        calls = [i for i in items if i.get("kind", "earnings") in ("earnings", "analyst")]
+        return sorted(calls, key=lambda i: i["filed"], reverse=True)[:MAX_CALLS]
+
     def _set_pending(self, sym: str, items: List[Dict]) -> None:
         pend = self.state.setdefault("trPending", {})
-        n = sum(1 for i in items if not i.get("done"))
+        wanted = self._wanted(items)
+        n = sum(1 for i in wanted if not i.get("done"))
         if n:
-            pend[sym] = {"n": n, "latest": bool(items) and not items[0].get("done")}
+            pend[sym] = {"n": n, "latest": not wanted[0].get("done")}
         else:
             pend.pop(sym, None)
 
@@ -1463,6 +1470,22 @@ class Pipeline:
                     self._set_pending(sym, items)
             self.state["liteRetry"] = True
             log.info("re-queued %d calls that failed on the Flash-Lite bug", n)
+        if self.state.get("callLimit") != MAX_CALLS:
+            # Only the newest MAX_CALLS concalls per company are summarised:
+            # recount the queue and drop older calls from the Q&A queue.
+            pend = self.state["trPending"] = {}
+            wanted_ids = set()
+            for sym, tdoc in self.store.list("transcripts"):
+                if sym not in self.universe:
+                    continue
+                items = tdoc.get("items", [])
+                self._set_pending(sym, items)
+                wanted_ids |= {(sym, i.get("id", i["period"])) for i in self._wanted(items)}
+            qa = self.state.get("qaQueue", [])
+            self.state["qaQueue"] = [x for x in qa if (x[0], x[1]) in wanted_ids]
+            self.state["callLimit"] = MAX_CALLS
+            log.info("call limit %d: %d companies pending, Q&A queue %d -> %d", MAX_CALLS,
+                     len(pend), len(qa), len(self.state["qaQueue"]))
         deadline = _t.time() + SUMMARY_MINUTES * 60
         done = failures_in_a_row = 0
         pend = self.state.setdefault("trPending", {})
@@ -1475,7 +1498,7 @@ class Pipeline:
             sym = order()[0]
             tdoc = self.store.get(f"transcripts/{sym}") or {"items": []}
             items = tdoc.get("items", [])
-            item = next((i for i in items if not i.get("done")), None)  # newest pending first
+            item = next((i for i in self._wanted(items) if not i.get("done")), None)  # newest pending first
             if item is None:
                 pend.pop(sym, None)
                 continue

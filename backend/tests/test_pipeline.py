@@ -596,3 +596,21 @@ def test_state_is_one_compressed_field():
     assert run.unpack_state(packed) == big
     assert run.unpack_state({"backfilled": ["A"]}) == {"backfilled": ["A"]}  # old format
     assert run.unpack_state(None) == {}
+
+
+def test_only_four_newest_calls_are_summarised(tmp_path):
+    import run
+    from store import LocalStore
+    st = LocalStore(tmp_path)
+    pipe = run.Pipeline(st, None, None, {"X": {"name": "X"}}, 1)
+    items = [{"id": f"c{m}", "period": "Q", "kind": "earnings", "filed": f"2026-{m:02d}-10", "done": m == 11}
+             for m in range(3, 12)]
+    items.append({"id": "pres", "period": "Q", "kind": "presentation", "filed": "2026-11-20", "done": False})
+    wanted = pipe._wanted(items)
+    assert [i["id"] for i in wanted] == ["c11", "c10", "c9", "c8"]  # no presentation, no older calls
+    pipe._set_pending("X", items)
+    assert pipe.state["trPending"]["X"] == {"n": 3, "latest": False}
+    for i in items:
+        i["done"] = i["id"] in {"c8", "c9", "c10", "c11"}
+    pipe._set_pending("X", items)
+    assert "X" not in pipe.state["trPending"]  # company finished once its 4 newest are done
