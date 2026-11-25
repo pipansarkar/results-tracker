@@ -189,7 +189,7 @@ def test_pipeline_results_flow_with_fake_nse(tmp_path):
     assert store.get("companies/TEST/guidance/g1")["status"] == "met"
     assert store.get("feed/today")["items"][0]["revenueYoY"] == 20.0
     assert notifier.sent and notifier.sent[0][0] == "stock_TEST"
-    assert "TEST" in store.get("pipeline_state/main")["backfilled"]
+    assert "TEST" in run.unpack_state(store.get("pipeline_state/main"))["backfilled"]
 
     def events(d):
         wk = store.get(f"calendar/{run.week_id(d)}") or {"events": []}
@@ -584,3 +584,15 @@ def test_generate_json_rotates_models(monkeypatch):
     assert sm.candidates(_C(), lite=True) == ["gemini-9-flash-lite", "gemini-8-flash"]
     sm._busy["gemini-9-flash-lite"] = sm.time.time()
     assert sm.candidates(_C(), lite=True) == ["gemini-8-flash", "gemini-9-flash-lite"]
+
+
+def test_state_is_one_compressed_field():
+    """Firestore indexes every field (40,000 per document): keep state packed."""
+    import run
+    big = {"trPending": {f"S{i}": {"latest": True, "n": i} for i in range(5000)},
+           "profiled": {f"S{i}": "2026-11-25" for i in range(5000)}, "lastRun": "x"}
+    packed = run.pack_state(big)
+    assert set(packed) == {"format", "lastRun", "blob"}
+    assert run.unpack_state(packed) == big
+    assert run.unpack_state({"backfilled": ["A"]}) == {"backfilled": ["A"]}  # old format
+    assert run.unpack_state(None) == {}

@@ -61,7 +61,10 @@ class FirestoreRepository implements Repository {
       .collection('companies')
       .doc(symbol)
       .snapshots()
-      .map((s) => s.data() == null ? null : Company.fromMap(s.data()!));
+      .map((s) {
+        final data = s.data();
+        return data == null ? null : Company.fromMap(data);
+      });
 
   @override
   Future<List<Concall>> concalls(String symbol) async {
@@ -84,8 +87,9 @@ class FirestoreRepository implements Repository {
         .limit(80)
         .get();
     return snap.docs
-        .where((d) => d.data()['status'] != 'superseded')
-        .map((d) => GuidanceItem.fromMap(d.data()))
+        .map((d) => d.data())
+        .where((data) => data['status'] != 'superseded')
+        .map(GuidanceItem.fromMap)
         .toList();
   }
 
@@ -102,11 +106,12 @@ class FirestoreRepository implements Repository {
   Future<List<StockMetrics>> screener() async {
     final snap = await _db.collection('screener').get();
     return [
-      for (final d in snap.docs)
-        for (final e in (d.data()['items'] as List? ?? []))
+      // Read each document once: data() copies the whole document.
+      for (final data in snap.docs.map((d) => d.data()))
+        for (final e in (data['items'] as List? ?? []))
           StockMetrics.fromMap(
             Map<String, dynamic>.from(e as Map),
-            asOf: d.data()['asOf'] as String?,
+            asOf: data['asOf'] as String?,
           ),
     ];
   }
@@ -132,7 +137,8 @@ class FirestoreRepository implements Repository {
   @override
   Future<Season?> season() async {
     final doc = await _db.collection('meta').doc('season').get();
-    return doc.data() == null ? null : Season.fromMap(doc.data()!);
+    final data = doc.data();
+    return data == null ? null : Season.fromMap(data);
   }
 
   @override
@@ -147,9 +153,8 @@ class FirestoreRepository implements Repository {
   @override
   Future<IpoBoard> ipos() async {
     final doc = await _db.collection('meta').doc('ipos').get();
-    return doc.data() == null
-        ? const IpoBoard()
-        : IpoBoard.fromMap(doc.data()!);
+    final data = doc.data();
+    return data == null ? const IpoBoard() : IpoBoard.fromMap(data);
   }
 
   @override

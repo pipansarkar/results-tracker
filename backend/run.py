@@ -49,6 +49,26 @@ IST = timezone(timedelta(hours=5, minutes=30))
 HERE = Path(__file__).parent
 UNIVERSE_CSV = HERE / "companies.csv"
 STATE = "pipeline_state/main"
+
+
+def pack_state(state: Dict) -> Dict:
+    """The state has thousands of keys; Firestore indexes every field (limit
+    40,000 per document). Store it as one compressed, unindexed-in-effect blob."""
+    import base64
+    import zlib
+    raw = json.dumps(state, separators=(",", ":"), default=str).encode()
+    return {"format": 2, "lastRun": state.get("lastRun"),
+            "blob": base64.b64encode(zlib.compress(raw, 9)).decode()}
+
+
+def unpack_state(doc: Optional[Dict]) -> Dict:
+    if not doc:
+        return {}
+    if doc.get("format") == 2 and doc.get("blob"):
+        import base64
+        import zlib
+        return json.loads(zlib.decompress(base64.b64decode(doc["blob"])))
+    return doc  # old format: plain fields
 SCHEMA = 5  # bump to re-parse all filings (5 = + BS/cash-flow detail, filing time, price reaction, shareholding)
 MAX_PROCESSED = 8000
 
@@ -127,7 +147,7 @@ class Pipeline:
         self.notify = notifier
         self.universe = universe
         self.max_summaries = max_summaries
-        self.state = store.get(STATE) or {}
+        self.state = unpack_state(store.get(STATE))
         if self.state.get("schema") != SCHEMA:
             # New fields: reload history for every stock once.
             self.state["processed"] = [k for k in self.state.get("processed", []) if not k.startswith("res:")]
@@ -200,7 +220,9 @@ class Pipeline:
 
         self.state["backfilled"] = sorted(self.backfilled)
         self.state["lastRun"] = now_ist().isoformat()
-        self.store.set(STATE, self.state)
+        packed = pack_state(self.state)
+        log.info("state saved: %d KB compressed", len(packed["blob"]) // 1024)
+        self.store.set(STATE, packed)
 
     # -------------------------------------------------------------- universe
 
