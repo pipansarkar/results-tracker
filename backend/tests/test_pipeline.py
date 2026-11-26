@@ -586,6 +586,47 @@ def test_generate_json_rotates_models(monkeypatch):
     assert sm.candidates(_C(), lite=True) == ["gemini-8-flash", "gemini-9-flash-lite"]
 
 
+def test_generate_json_waits_out_busy_models(monkeypatch):
+    """All models briefly overloaded: wait and retry instead of ending the run."""
+    import json as _json
+    import pytest
+    import summarize as sm
+
+    calls, waits = [], []
+
+    class _Models:
+        def generate_content(self, model, **kw):
+            calls.append(model)
+            if len(calls) <= 4:  # first full round: both models answer 503 twice
+                raise RuntimeError("503 UNAVAILABLE high demand")
+            class R:
+                text = _json.dumps({"ok": 1})
+            return R()
+
+    class _C:
+        models = _Models()
+
+    monkeypatch.setattr(sm, "_all_models", ["gemini-9-flash", "gemini-8-flash"])
+    monkeypatch.setattr(sm, "_dead", set())
+    monkeypatch.setattr(sm, "_busy", {})
+    monkeypatch.setattr(sm.time, "sleep", waits.append)
+    data, _ = sm.generate_json(_C(), "p", {"type": "OBJECT"})
+    assert data == {"ok": 1} and 30 in waits
+
+    # Every model out of today's allowance: give up at once, no waiting.
+    class _Dead:
+        def generate_content(self, model, **kw):
+            raise RuntimeError("429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel")
+
+    class _D:
+        models = _Dead()
+
+    sm._dead.clear(); waits.clear()
+    with pytest.raises(sm.QuotaExceeded):
+        sm.generate_json(_D(), "p", {"type": "OBJECT"})
+    assert 30 not in waits
+
+
 def test_state_is_one_compressed_field():
     """Firestore indexes every field (40,000 per document): keep state packed."""
     import run

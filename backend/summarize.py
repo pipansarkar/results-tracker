@@ -114,13 +114,33 @@ def generate_json(client, prompt: str, schema: Dict, *, lite: bool = False,
     if max_tokens:
         cfg["max_output_tokens"] = max_tokens
     tried, last = 0, ""
+    # A 503 "overloaded" passes within a minute or two; only daily limits
+    # are final. Wait and go round the models again before giving up.
+    for rnd in range(BUSY_ROUNDS + 1):
+        if rnd:
+            if not candidates(client, lite):
+                break  # every model is out of today's allowance
+            log.info("Gemini models all busy; waiting %ds and trying again", 30 * rnd)
+            time.sleep(30 * rnd)
+        res, n, last = _try_models(client, prompt, types.GenerateContentConfig(**cfg), lite)
+        tried += n
+        if res is not None:
+            return res
+    raise QuotaExceeded(f"no Gemini model available right now ({tried} tried): {last}")
+
+
+BUSY_ROUNDS = int(os.environ.get("GEMINI_BUSY_ROUNDS", "3"))
+
+
+def _try_models(client, prompt, config, lite):
+    """One pass over the models: ((data, model), tried, "") or (None, tried, last error)."""
+    tried, last = 0, ""
     for model in candidates(client, lite):
         tried += 1
         for attempt in range(3):
             try:
-                resp = client.models.generate_content(
-                    model=model, contents=prompt, config=types.GenerateContentConfig(**cfg))
-                return json.loads(resp.text), model
+                resp = client.models.generate_content(model=model, contents=prompt, config=config)
+                return (json.loads(resp.text), model), tried, ""
             except json.JSONDecodeError:
                 if attempt >= 1:
                     raise
@@ -149,7 +169,7 @@ def generate_json(client, prompt: str, schema: Dict, *, lite: bool = False,
                 if "API_KEY_INVALID" in msg or "PERMISSION_DENIED" in msg:
                     raise QuotaExceeded(msg[:300]) from e
                 raise
-    raise QuotaExceeded(f"no Gemini model available right now ({tried} tried): {last}")
+    return None, tried, last
 
 
 def pdf_text(content: bytes) -> str:

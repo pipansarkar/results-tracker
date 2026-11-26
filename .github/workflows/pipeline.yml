@@ -48,9 +48,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Minutes per run spent loading history until every stock has it.
           BACKFILL_MINUTES: "25"
-          # Concall summaries per run: up to 80 within 12 minutes.
+          # Concall summaries per run: up to 80 within 16 minutes.
           MAX_SUMMARIES: "80"
-          SUMMARY_MINUTES: "12"
+          SUMMARY_MINUTES: "16"
           EXTRA_ARGS: ${{ github.event.inputs.args }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && [[ "$EXTRA_ARGS" != *--dry-run* ]]; then
