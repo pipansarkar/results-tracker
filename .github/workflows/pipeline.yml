@@ -74,7 +74,7 @@ jobs:
           # Start the next run unless one is already queued or running
           # (GitHub's cron often skips slots). Runs stay >= 25 min apart.
           others=$(gh run list -R "$GITHUB_REPOSITORY" --workflow results-pipeline --limit 10 \
-                     --json databaseId,status -q "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.status==\"queued\" or .status==\"in_progress\" or .status==\"waiting\" or .status==\"pending\")] | length")
+                     --json databaseId,status -q "[.[] | select(.databaseId != $GITHUB_RUN_ID) | select(.status==\"queued\" or .status==\"in_progress\" or .status==\"waiting\" or .status==\"pending\")] | length") || others=1
           if [ "${others:-0}" -gt 0 ]; then
             echo "Another run is already queued; not starting one."
             exit 0
@@ -83,4 +83,10 @@ jobs:
           wait=$(( 1500 - (now - ${RUN_START:-$now}) ))
           if [ "$wait" -gt 0 ]; then echo "Waiting ${wait}s before the next run."; sleep "$wait"; fi
           echo "Starting next run."
-          gh workflow run results-pipeline -R "$GITHUB_REPOSITORY"
+          # Retry brief GitHub API errors; never fail the run over this step
+          # (the cron schedule starts the next run anyway).
+          for i in 1 2 3; do
+            gh workflow run results-pipeline -R "$GITHUB_REPOSITORY" && exit 0
+            sleep 30
+          done
+          echo "::warning::Could not start the next run; the schedule will start one."
