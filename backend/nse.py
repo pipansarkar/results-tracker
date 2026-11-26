@@ -80,7 +80,15 @@ class NseClient:
                 self._prime()
                 continue
             r.raise_for_status()
-            return r.json()
+            try:
+                return r.json()
+            except ValueError:
+                # NSE sometimes serves an HTML page instead of JSON
+                # (bot check or maintenance): fresh cookies, then retry.
+                self._primed = False
+                time.sleep(5 * (attempt + 1))
+                self._prime()
+                continue
         raise RuntimeError(f"NSE refused {path} (HTTP {r.status_code}). "
                            "NSE often blocks non-Indian cloud IPs; see README.")
 

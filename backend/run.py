@@ -1724,26 +1724,27 @@ def main() -> None:
             pipe.sync_company_list()
         else:
             pipe.universe = {s: universe.get(s, {"symbol": s, "name": s, "sector": ""}) for s in symbols}
-        pipe.process_results(args.days)
-        pipe.process_deals(args.days)
-        pipe.process_shareholding(args.days)
+        _step('process_results', pipe.process_results, args.days)
+        _step('process_deals', pipe.process_deals, args.days)
+        _step('process_shareholding', pipe.process_shareholding, args.days)
         if args.backfill and symbols:
             pipe.backfill(symbols, minutes=600)
         elif args.backfill_all:
             pipe.backfill(minutes=330, refresh_ratios_every=400)
             pipe.save_state()
             pipe.process_screener(force=True)
-        pipe.process_board_meetings()
-        pipe.process_announcements(args.days, history=not args.no_history and not symbols
-                                   and pipe.budget_ok("announcement history", write_limit=WRITE_SOFT - 3000))
+        _step('process_board_meetings', pipe.process_board_meetings)
+        _step("process_announcements", pipe.process_announcements, args.days,
+              history=not args.no_history and not symbols
+              and pipe.budget_ok("announcement history", write_limit=WRITE_SOFT - 3000))
         if not symbols:
-            pipe.process_corporate_actions()
+            _step('process_corporate_actions', pipe.process_corporate_actions)
         pipe.flush_calendar()
         pipe.flush_news()
         pipe.flush_activity()
         pipe.flush_orders()
         if not symbols:
-            pipe.process_ipos()
+            _step('process_ipos', pipe.process_ipos)
         pipe.process_pending_reactions()
         if not args.skip_transcripts:
             pipe.process_transcripts()
@@ -1801,6 +1802,16 @@ def main() -> None:
             if not _quota_error(e):
                 raise
             log.warning("could not save state (quota): %s", str(e)[:120])
+
+
+def _step(name, fn, *a, **k):
+    """Run one NSE-fed step; a brief NSE outage must not stop summaries."""
+    try:
+        return fn(*a, **k)
+    except Exception as e:
+        if _quota_error(e):
+            raise
+        log.warning("%s skipped this run (NSE error, retried next run): %s", name, str(e)[:160])
 
 
 def _quota_error(e: BaseException) -> bool:
