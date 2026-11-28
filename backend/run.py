@@ -1523,7 +1523,7 @@ class Pipeline:
             try:
                 text = pdf_text(self.nse.download(url))
                 if len(text) < 2000:
-                    raise ValueError("transcript text too short (scanned PDF?)")
+                    raise ScannedPdf("transcript text too short (scanned PDF?)")
                 label = {"earnings": period, "analyst": f"{period} (analyst / investor call)",
                          "presentation": f"{period} investor presentation",
                          "press_release": f"{period} press release"}.get(kind, period)
@@ -1535,8 +1535,13 @@ class Pipeline:
                 break
             except Exception as e:
                 log.warning("transcript %s failed: %s", url, e)
-                failures_in_a_row += 1
                 item["tries"] = item.get("tries", 0) + 1
+                if isinstance(e, ScannedPdf):
+                    # Retrying never helps, and it says nothing about NSE or
+                    # Gemini: skip it without stopping the other companies.
+                    item["done"] = item["unreadable"] = True
+                else:
+                    failures_in_a_row += 1
                 if item["tries"] >= 3:
                     item["done"] = True  # give up on unreadable transcripts
                 self.store.set(f"transcripts/{sym}", tdoc)
@@ -1802,6 +1807,10 @@ def main() -> None:
             if not _quota_error(e):
                 raise
             log.warning("could not save state (quota): %s", str(e)[:120])
+
+
+class ScannedPdf(ValueError):
+    """A transcript PDF with no text layer (a scanned image)."""
 
 
 def _step(name, fn, *a, **k):

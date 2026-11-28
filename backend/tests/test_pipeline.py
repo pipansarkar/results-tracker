@@ -655,3 +655,32 @@ def test_only_four_newest_calls_are_summarised(tmp_path):
         i["done"] = i["id"] in {"c8", "c9", "c10", "c11"}
     pipe._set_pending("X", items)
     assert "X" not in pipe.state["trPending"]  # company finished once its 4 newest are done
+
+
+def test_scanned_pdfs_do_not_block_other_companies(tmp_path, monkeypatch):
+    """A company whose transcripts are all scanned images is skipped at once."""
+    import run
+    import summarize as sm
+    from store import LocalStore
+    st = LocalStore(tmp_path)
+
+    class _Nse:
+        def download(self, url):
+            return url.encode()
+
+    universe = {"BIG": {"name": "Big", "mcap": 9e5}, "SMALL": {"name": "Small", "mcap": 1e3}}
+    pipe = run.Pipeline(st, _Nse(), None, universe, 1)
+    pipe.state["callLimit"] = run.MAX_CALLS
+    pipe.max_summaries = 20
+    for sym in universe:
+        items = [{"id": f"{sym}{m}", "period": "Q2FY27", "kind": "earnings", "filed": f"2026-{m:02d}-10",
+                  "url": f"{sym}-{m}", "done": False} for m in range(5, 11)]
+        st.set(f"transcripts/{sym}", {"items": items})
+        pipe._set_pending(sym, items)
+    monkeypatch.setattr(sm, "pdf_text", lambda b: "" if b.startswith(b"BIG") else "word " * 1000)
+    monkeypatch.setattr(sm, "summarise", lambda *a, **k: {"tone": "positive", "summary": {}})
+    pipe.process_transcripts()
+    big = st.get("transcripts/BIG")["items"]
+    assert all(i.get("unreadable") for i in pipe._wanted(big))
+    assert "BIG" not in pipe.state["trPending"]
+    assert st.get("companies/SMALL/concalls/SMALL10") is not None  # the next company still got done
